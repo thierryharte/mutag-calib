@@ -104,6 +104,7 @@ common_cats = {
     "pt300msd80" : [get_ptmsd(300., 80.)],
     "pt300msd100" : [get_ptmsd(300., 100.)],
     "pt300msd80to170" : [get_ptmsd_window(300., 80., 170.)],
+    "leadpt300msd50subleadpt250msd50mreg50to200": [get_two_jet_ptmsd(300., 50., 250., 50.), get_mregbin(50., 200.)],
 }
 
 # Define cuts to select bins in pt

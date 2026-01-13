@@ -47,16 +47,16 @@ mutag_calibration:
     2022_preEE:
       particleNet_XbbVsQCD:
         HHbbbb_leading: 0.65
-        HHbbbb_subleading: 0.50
+        HHbbbb_subleading: 0.05
     2022_postEE:
       particleNet_XbbVsQCD:
         HHbbbb_leading: 0.65
-        HHbbbb_subleading: 0.50
+        HHbbbb_subleading: 0.05
     2023_preBPix:
       particleNet_XbbVsQCD:
         HHbbbb_leading: 0.65
-        HHbbbb_subleading: 0.50
+        HHbbbb_subleading: 0.05
     2023_postBPix:
       particleNet_XbbVsQCD:
         HHbbbb_leading: 0.65
-        HHbbbb_subleading: 0.50
+        HHbbbb_subleading: 0.05

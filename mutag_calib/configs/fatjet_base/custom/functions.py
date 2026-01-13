@@ -1,6 +1,7 @@
 import numpy as np
 import awkward as ak
 from pocket_coffea.lib.cut_definition import Cut
+from copy import copy
 
 def tagger_mask(events, params, **kwargs):
     mask = np.zeros(len(events), dtype='bool')
@@ -94,28 +95,28 @@ def get_inclusive_wp(tagger, wp, category):
         collection="FatJetGood"
     )
 
-def twojets_ptmsd(events, params, **kwargs):
-    '''Mask to select events with at least one jet satisfying the pt, msd requirements
-    and events with exactly two jets satisfying the pt, msd requirements.'''
-
-    mask_one_jet = (
-        ak.any(events.FatJetGood.pt > params["pt"], axis=1) &
-        ak.any(events.FatJetGood.msoftdrop > params["msd"], axis=1)
-    )
-
-    mask_two_jets = (
-        ak.all(events.FatJetGood.pt > params["pt"], axis=1) &
-        ak.all(events.FatJetGood.msoftdrop > params["msd"], axis=1)
-    )
-
-    fatjet_mutag = (
-        ( (events.nFatJetGood >= 1) & mask_one_jet ) |
-        ( (events.nFatJetGood == 2) & mask_two_jets )
-    )
-
-    assert not ak.any(ak.is_none(fatjet_mutag)), f"None in mutag\n{fatjet_mutag}"
-
-    return fatjet_mutag
+# def two_jet_ptmsd(events, params, **kwargs):
+#     '''Mask to select events with at least one jet satisfying the pt, msd requirements
+#     and events with exactly two jets satisfying the pt, msd requirements.'''
+# 
+#     mask_one_jet = (
+#         ak.any(events.FatJetGood.pt > params["pt"], axis=1) &
+#         ak.any(events.FatJetGood.msoftdrop > params["msd"], axis=1)
+#     )
+# 
+#     mask_two_jets = (
+#         ak.all(events.FatJetGood.pt > params["pt"], axis=1) &
+#         ak.all(events.FatJetGood.msoftdrop > params["msd"], axis=1)
+#     )
+# 
+#     fatjet_mutag = (
+#         ( (events.nFatJetGood >= 1) & mask_one_jet ) |
+#         ( (events.nFatJetGood == 2) & mask_two_jets )
+#     )
+# 
+#     assert not ak.any(ak.is_none(fatjet_mutag)), f"None in mutag\n{fatjet_mutag}"
+# 
+#     return fatjet_mutag
 
 def mutag_fatjet(events, params, **kwargs):
     # Select jets with a minimum number of matched muons
@@ -153,30 +154,48 @@ def ptbin(events, params, **kwargs):
 
     return mask
 
+
 def ptbin_mutag(events, params, **kwargs):
     return ptbin(events, params, **kwargs) & mutag(events, params, **kwargs)
+
 
 def msoftdrop(events, params, **kwargs):
     # Mask to select events with a fatjet with minimum softdrop mass and maximum tau21
     #return (events.FatJetGood[:,0].pt > params["pt"]) & (events.FatJetGood[:,0].msoftdrop > params["msd"])
     mask = events.FatJetGood.msoftdrop > params["msd"]
-    
+
     assert not ak.any(ak.is_none(mask), axis=1), f"None in ptmsd\n{events.FatJetGood.pt[ak.is_none(mask, axis=1)]}"
 
     return ak.where(~ak.is_none(mask, axis=1), mask, False)
+
 
 def msoftdropbin(events, params, **kwargs):
     # Mask to select events with a fatjet with minimum softdrop mass and maximum
     if params["msd_max"] == 'Inf':
         mask = (events.FatJetGood.msoftdrop >= params["msd_min"])
     elif type(params["msd_max"]) != str:
-        mask = (events.FatJetGood.msoftdrop >= params["msd_min"]) & (events.FatJetGood.msoftdrop < params["msd_max"])
+        mask = (events.fatjetgood.msoftdrop >= params["msd_min"]) & (events.fatjetgood.msoftdrop < params["msd_max"])
+    else:
+        raise notimplementederror
+
+    assert not ak.any(ak.is_none(mask, axis=1)), f"none in msoftdropbin\n{events.njetgood[ak.is_none(mask, axis=1)]}"
+
+    return ak.where(~ak.is_none(mask, axis=1), mask, false)
+
+
+def mregbin(events, params, **kwargs):
+    # Mask to select events with a fatjet with minimum softdrop mass and maximum
+    if params["mreg_max"] == 'Inf':
+        mask = (events.FatJetGood.mass >= params["mreg_min"])
+    elif type(params["mreg_max"]) != str:
+        mask = (events.FatJetGood.mass >= params["mreg_min"]) & (events.FatJetGood.mass < params["mreg_max"])
     else:
         raise NotImplementedError
 
-    assert not ak.any(ak.is_none(mask, axis=1)), f"None in msoftdropbin\n{events.nJetGood[ak.is_none(mask, axis=1)]}"
+    assert not ak.any(ak.is_none(mask, axis=1)), f"None in massbin\n{events.nJetGood[ak.is_none(mask, axis=1)]}"
 
     return ak.where(~ak.is_none(mask, axis=1), mask, False)
+
 
 def ptmsd(events, params, **kwargs):
     # Mask to select events with a fatjet with minimum softdrop mass and maximum tau21
@@ -187,6 +206,29 @@ def ptmsd(events, params, **kwargs):
 
     return ak.where(~ak.is_none(mask, axis=1), mask, False)
 
+
+def two_jet_ptmsd(events, params, **kwargs):
+    """Select events with leading and subleading fatjet each fulfilling separate conditions."""
+    fatjets = copy(events.FatJetGood)
+    fatjets = fatjets[ak.argsort(fatjets.pt, axis=1, ascending=False)]
+
+    has_two_jets = events.nFatJetGood >= 2
+    fatjets = ak.mask(fatjets, has_two_jets)
+
+    lead_mask = ak.fill_none(
+        (fatjets[:, 0].pt > params["pt_lead"]) &
+        (fatjets[:, 0].msoftdrop > params["msd_lead"])
+        , False)
+    sublead_mask = ak.fill_none(
+        (fatjets[:, 1].pt > params["pt_sublead"]) &
+        (fatjets[:, 1].msoftdrop > params["msd_sublead"])
+        , False)
+
+    mask = ak.fill_none(has_two_jets, False) & lead_mask & sublead_mask
+    assert not ak.any(ak.is_none(mask)), f"None in two_jet_ptmsd\n{events.FatJetGood.pt[ak.is_none(mask)]}"
+
+    return mask
+
 def ptmsd_window(events, params, **kwargs):
     # Mask to select events with a fatjet with minimum softdrop mass and maximum softdrop mass
     mask = (events.FatJetGood.pt > params["pt"]) & (events.FatJetGood.msoftdrop > params["msd_min"]) & (events.FatJetGood.msoftdrop < params["msd_max"])
@@ -194,7 +236,6 @@ def ptmsd_window(events, params, **kwargs):
     assert not ak.any(ak.is_none(mask, axis=1)), f"None in ptmsd_window\n{events.FatJetGood.pt[ak.is_none(mask, axis=1)]}"
 
     return ak.where(~ak.is_none(mask, axis=1), mask, False)
-
 
 def ptmsdtau(events, params, **kwargs):
     # Mask to select events with a fatjet with minimum softdrop mass and maximum tau21

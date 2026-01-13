@@ -7,7 +7,7 @@ from pocket_coffea.lib.calibrators.common.common import JetsCalibrator, JetsSoft
 from pocket_coffea.lib.weights.common.common import common_weights
 from pocket_coffea.parameters.histograms import *
 import mutag_calib
-from mutag_calib.configs.fatjet_base.custom.cuts import get_ptmsd, get_ptmsd_window, get_nObj_minmsd, get_flavor
+from mutag_calib.configs.fatjet_base.custom.cuts import get_ptmsd, get_ptmsd_window, get_two_jet_ptmsd, get_mregbin, get_nObj_minmsd, get_flavor
 from mutag_calib.configs.fatjet_base.custom.functions import get_inclusive_wp
 from mutag_calib.configs.fatjet_base.custom.weights import SF_trigger_prescale
 import mutag_calib.workflows.pt_reweighting as workflow
@@ -37,6 +37,9 @@ samples = [
     "SingleTop",
     "DATA_BTagMu"
 ]
+# samples = [
+#     "SingleTop"
+# ]
 subsamples = {}
 for s in filter(lambda x: 'DATA_BTagMu' not in x, samples):
     subsamples[s] = {f"{s}_{f}" : [get_flavor(f)] for f in ['l', 'c', 'b', 'cc', 'bb']}
@@ -96,11 +99,11 @@ for coll in collections:
 cfg = Configurator(
     parameters = parameters,
     datasets = {
-         "jsons": ["datasets/MC_VJets_run3_redirector.json",
-                   "datasets/MC_TTto4Q_run3_redirector.json",
-                   "datasets/MC_singletop_run3_redirector.json",
-                   "datasets/DATA_BTagMu_run3_redirector.json",
-                   "datasets/MC_QCD_MuEnriched_run3_redirector.json"
+         "jsons": ["datasets/MC_VJets_run3.json",
+                   "datasets/MC_TTto4Q_run3.json",
+                   "datasets/MC_singletop_run3.json",
+                   "datasets/DATA_BTagMu_run3.json",
+                   "datasets/MC_QCD_MuEnriched_run3.json"
                    ],
         "filter" : {
             "samples": samples,
@@ -133,6 +136,7 @@ cfg = Configurator(
         "pt300msd80" : [get_ptmsd(300., 80.)],
         "pt300msd30to210" : [get_ptmsd_window(300., 30., 210.)],
         "pt300msd80to170" : [get_ptmsd_window(300., 80., 170.)],
+        "leadpt300msd50subleadpt250msd50mreg50to200": [get_two_jet_ptmsd(300., 50., 250., 50.), get_mregbin(50., 200.)],
     },
 
     weights_classes = common_weights + [SF_trigger_prescale],
