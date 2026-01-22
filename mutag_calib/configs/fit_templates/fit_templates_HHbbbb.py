@@ -8,7 +8,7 @@ from pocket_coffea.lib.calibrators.common.common import JetsCalibrator, JetsSoft
 from pocket_coffea.lib.weights.common.common import common_weights
 from pocket_coffea.parameters.histograms import *
 import mutag_calib
-from mutag_calib.configs.fatjet_base.custom.cuts import get_ptmsd, get_ptmsd_window, get_nObj_minmsd, get_flavor, get_ptbin, get_msdbin
+from mutag_calib.configs.fatjet_base.custom.cuts import get_ptmsd, get_ptmsd_window, get_two_jet_ptmsd, get_mregbin, get_nObj_minmsd, get_flavor, get_ptbin, get_msdbin
 from mutag_calib.configs.fatjet_base.custom.functions import get_inclusive_wp
 from mutag_calib.configs.fatjet_base.custom.weights import SF_trigger_prescale
 import mutag_calib.workflows.mutag_oneMuAK8_processor as workflow
@@ -34,6 +34,7 @@ parameters = defaults.merge_parameters_from_files(default_parameters,
 
 samples = [
     "QCD_MuEnriched",
+    "QCD_Madgraph",
     "VJets",
     "TTto4Q",
     "SingleTop",
@@ -94,8 +95,8 @@ taggers = parameters["mutag_calibration"]["taggers"]
 # Note: Here we assume that the pt binning and WPs are the same for all the eras!
 # To be changed in the future if the WP is a function of the data taking year
 pt_binning = parameters["mutag_calibration"]["pt_binning"]["2022_preEE"]
-wp_dict = parameters["mutag_calibration"]["wp"]["2022_preEE"]
 msd_binning = parameters["mutag_calibration"]["msd_binning"]["2022_preEE"]
+wp_dict = parameters["mutag_calibration"]["wp"]["2022_preEE"]
 
 common_cats = {
     "inclusive" : [passthrough],
@@ -146,11 +147,12 @@ multicuts = [
 cfg = Configurator(
     parameters = parameters,
     datasets = {
-        "jsons": ["datasets/MC_QCD_MuEnriched_run3.json",
-                  "datasets/MC_VJets_run3.json",
-                  "datasets/MC_TTto4Q_run3.json",
-                  "datasets/MC_singletop_run3.json",
-                  "datasets/DATA_BTagMu_run3.json"],
+        "jsons": ["datasets/MC_QCD_MuEnriched_run3_redirector.json",
+                  "datasets/MC_QCD_Madgraph_run3_redirector.json",
+                  "datasets/MC_VJets_run3_redirector.json",
+                  "datasets/MC_TTto4Q_run3_redirector.json",
+                  "datasets/MC_singletop_run3_redirector.json",
+                  "datasets/DATA_BTagMu_run3_redirector.json"],
         "filter" : {
             "samples": samples,
             "samples_exclude" : [],
@@ -158,7 +160,8 @@ cfg = Configurator(
                 '2022_preEE',
                 '2022_postEE',
                 '2023_preBPix',
-                '2023_postBPix'
+                '2023_postBPix',
+                '2024'
             ]
         },
         "subsamples": subsamples
@@ -187,6 +190,26 @@ cfg = Configurator(
             }
         },
         "bysample": {
+            "QCD_Madgraph": {
+                "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                "bycategory" : {
+                }
+            },
+            "VJets": {
+                "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                "bycategory" : {
+                }
+            },
+            "TTto4Q": {
+                "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                "bycategory" : {
+                }
+            },
+            "SingleTop": {
+                "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                "bycategory" : {
+                }
+            }
         }
     },
 
@@ -199,12 +222,31 @@ cfg = Configurator(
                 }
             },
             "bysample": {
-            }    
+                "QCD_Madgraph": {
+                    "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                    "bycategory": {
+                    }
+                },
+                "VJets": {
+                    "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                    "bycategory": {
+                    }
+                },
+                "TTto4Q": {
+                    "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                    "bycategory": {
+                    }
+                },
+                "SingleTop": {
+                    "inclusive": ["sf_partonshower_isr", "sf_partonshower_fsr"],
+                    "bycategory": {
+                    }
+                }
+            }   
         },
         "shape": {
             "common": {
-                # "inclusive" : ["JES_Total_AK8PFPuppi", "JER_AK8PFPuppi"]
-                "inclusive" : []
+                "inclusive" : ["jet_calibration"]
             }
         }
     },

@@ -170,25 +170,42 @@ def msoftdrop(events, params, **kwargs):
 
 
 def msoftdropbin(events, params, **kwargs):
-    # Mask to select events with a fatjet with minimum softdrop mass and maximum
+    # mask to select events with a fatjet with minimum softdrop mass and maximum
     if params["msd_max"] == 'Inf':
         mask = (events.FatJetGood.msoftdrop >= params["msd_min"])
     elif type(params["msd_max"]) != str:
-        mask = (events.fatjetgood.msoftdrop >= params["msd_min"]) & (events.fatjetgood.msoftdrop < params["msd_max"])
+        mask = (events.FatJetGood.msoftdrop >= params["msd_min"]) & (events.FatJetGood.msoftdrop < params["msd_max"])
     else:
-        raise notimplementederror
+        raise NotImplementedError
 
-    assert not ak.any(ak.is_none(mask, axis=1)), f"none in msoftdropbin\n{events.njetgood[ak.is_none(mask, axis=1)]}"
+    assert not ak.any(ak.is_none(mask, axis=1)), f"none in msoftdropbin\n{events.nFatJetGood[ak.is_none(mask, axis=1)]}"
 
-    return ak.where(~ak.is_none(mask, axis=1), mask, false)
+    return ak.where(~ak.is_none(mask, axis=1), mask, False)
 
 
 def mregbin(events, params, **kwargs):
     # Mask to select events with a fatjet with minimum softdrop mass and maximum
+    # Define the regressed mass (use GloParT if available (NanoAOD15, else use ParticleNet)
+    if "globalParT3_massCorrX2p" in events.FatJetGood.fields:
+        # NanoAODv15
+        events["FatJetGood"] = ak.with_field(
+            events.FatJetGood,
+            (events.FatJetGood.globalParT3_massCorrX2p * events.FatJetGood.mass (1 - events.FatJetGood.rawFactor)),
+            "mass_reg",
+        )
+    elif "particleNet_massCorr" in events.FatJetGood.fields:
+        # NanoAODv12
+        events["FatJetGood"] = ak.with_field(
+            events.FatJetGood,
+            (events.FatJetGood.particleNet_massCorr * events.FatJetGood.mass),
+            "mass_reg",
+        )
+    else:
+        raise ValueError("Could not find the mass regression factor in file for GloParT or PNet")
     if params["mreg_max"] == 'Inf':
-        mask = (events.FatJetGood.mass >= params["mreg_min"])
-    elif type(params["mreg_max"]) != str:
-        mask = (events.FatJetGood.mass >= params["mreg_min"]) & (events.FatJetGood.mass < params["mreg_max"])
+        mask = (events.FatJetGood.mass_reg >= params["mreg_min"])
+    elif type(params["mreg_max"]) is not str:
+        mask = (events.FatJetGood.mass_reg >= params["mreg_min"]) & (events.FatJetGood.mass_reg < params["mreg_max"])
     else:
         raise NotImplementedError
 
