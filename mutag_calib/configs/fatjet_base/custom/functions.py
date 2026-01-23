@@ -190,7 +190,7 @@ def mregbin(events, params, **kwargs):
         # NanoAODv15
         events["FatJetGood"] = ak.with_field(
             events.FatJetGood,
-            (events.FatJetGood.globalParT3_massCorrX2p * events.FatJetGood.mass (1 - events.FatJetGood.rawFactor)),
+            (events.FatJetGood.globalParT3_massCorrX2p * events.FatJetGood.mass * (1 - events.FatJetGood.rawFactor)),
             "mass_reg",
         )
     elif "particleNet_massCorr" in events.FatJetGood.fields:
