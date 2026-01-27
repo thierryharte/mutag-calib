@@ -111,7 +111,7 @@ cfg = Configurator(
                 '2022_postEE',
                 '2023_preBPix',
                 '2023_postBPix',
-                '2024'
+                # '2024'
             ]
         },
         "subsamples": subsamples
@@ -134,7 +134,7 @@ cfg = Configurator(
         "pt300msd80" : [get_ptmsd(300., 80.)],
         "pt300msd30to210" : [get_ptmsd_window(300., 30., 210.)],
         "pt300msd80to170" : [get_ptmsd_window(300., 80., 170.)],
-        "pt250msd50mreg50to200bbtag65": [get_ptmsd(250., 50.), get_mregbin(50., 200.), get_tagger_pass(["btag"], 65.)],
+        "pt250msd50mreg50to200bbtag05": [get_ptmsd(250., 50.), get_mregbin(50., 200.), get_tagger_pass(["btag"], 0.05)],
     },
 
     weights_classes = common_weights + [SF_trigger_prescale],
