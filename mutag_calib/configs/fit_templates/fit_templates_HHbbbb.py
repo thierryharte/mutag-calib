@@ -23,7 +23,7 @@ default_parameters = defaults.get_default_parameters()
 defaults.register_configuration_dir("config_dir", localdir+"/params")
 
 parameters = defaults.merge_parameters_from_files(default_parameters,
-                                                f"{localdir}/params/object_preselection.yaml",
+                                                f"{localdir}/params/object_preselection_HHbbbb.yaml",
                                                 f"{localdir}/params/jets_calibration.yaml",
                                                 f"{localdir}/params/triggers_run3.yaml",
                                                 f"{localdir}/params/triggers_prescales_run3.yaml",
@@ -78,6 +78,12 @@ for coll in collections:
         [ Axis(coll="FatJetGood", field="logsumcorrSVmass", label=r"log($\sum({m^{corr}_{SV}})$)", bins=42, start=-2.4, stop=6),
           Axis(coll="FatJetGood", field="tau21", label=r"$\tau_{21}$", type="variable", bins=[0, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 1]) ]
     )
+    variables[f"{coll}_globalParT3_Xbb"] = HistConf([Axis(name=f"{coll}_globalParT3_Xbb", coll=coll, field="globalParT3_Xbb",
+                                                    label=r"FatJet globalParT3_Xbb score", bins=np.linspace(0,1,101).tolist())]
+    )
+    variables[f"{coll}_particleNet_XbbVsQCD"] = HistConf([Axis(name=f"{coll}_particleNet_XbbVsQCD", coll=coll, field="particleNet_XbbVsQCD",
+                                                    label=r"FatJet particleNet_XbbVsQCD score", bins=np.linspace(0,1,101).tolist())]
+    )
 
 # Build dictionary of workflow options
 # We reweigh histograms differently depending whether:
@@ -129,10 +135,11 @@ cuts_names_tagger = []
 for tagger in taggers:
     for wp, wp_value in wp_dict[tagger].items():
         for region in ["pass", "fail"]:
-            if "-" in wp_value:
+            if "-" in str(wp_value):
                 wp_low, wp_high = wp_value.split("-")
-                cuts_tagger.append(get_inclusive_wp(tagger, wp_low, region, wp_high))
-            cuts_tagger.append(get_inclusive_wp(tagger, wp_value, region))
+                cuts_tagger.append(get_inclusive_wp(tagger, (float(wp_low), float(wp_high)), region))
+            else:
+                cuts_tagger.append(get_inclusive_wp(tagger, float(wp_value), region))
             cuts_names_tagger.append(f"{tagger}-{wp}-{region}")
 
 # Define multicuts for pt, msd and tagger WPs
