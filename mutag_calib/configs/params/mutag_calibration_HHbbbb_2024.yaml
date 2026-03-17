@@ -1,0 +1,24 @@
+mutag_calibration:
+  taggers:
+    - globalParT3_Xbb
+    - particleNet_XbbVsQCD
+  pt_binning:
+    "2024":
+      - [250, 'Inf']
+      - [250, 300]
+      - [300, 350]
+      - [350, 425]
+      - [425, 'Inf']
+  msd_binning:
+    "2024":
+      - [50, 'Inf']
+      - [50, 200]
+      - [100, 150]
+  wp:
+    "2024":
+      globalParT3_Xbb:
+        HHbbbb_VHP: 0.99
+        HHbbbb_HP: "0.975-0.99"
+        HHbbbb_MP: "0.95-0.975"
+      particleNet_XbbVsQCD:
+        HHbbbb: 0.95
