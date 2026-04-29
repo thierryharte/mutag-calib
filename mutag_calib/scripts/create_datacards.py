@@ -18,6 +18,7 @@ from coffea.util import load
 from hist import Hist
 from hist.axis import StrCategory
 import numpy as np
+import matplotlib.pyplot as plt
 
 from pocket_coffea.utils.stat import MCProcess, DataProcess, SystematicUncertainty, MCProcesses, DataProcesses, Systematics
 from pocket_coffea.utils.stat.combine import combine_datacards
@@ -206,40 +207,48 @@ def get_passfail_ratio(datacards):
 def add_Madgraph_systematic(histogram_logsumSVmass_tau21):
     """Function to add the Madgraph systematic uncertainty to the histogram."""
     # select the qcd_samples
-    qcd_samples = [
-        s for s in histogram_logsumSVmass_tau21.keys()
-        if s.startswith("QCD_")
-    ]
+    qcd_samples = [s for s in histogram_logsumSVmass_tau21.keys() if s.startswith("QCD_")]
     print(f"QCD samples: {qcd_samples}\n")
-    #extract the flavors
-    flavors = {
-        s.split("__")[1].split("_")[-1]
-        for s in qcd_samples
-        if "__" in s and len(s.split("__")[1].split("_")) >= 2
-    }
+    # extract the flavors
+    flavors = {s.split("__")[1].split("_")[-1] for s in qcd_samples if "__" in s and len(s.split("__")[1].split("_")) >= 2}
     print(f"flavors: {flavors}\n")
     for flav in flavors:
-        print(f"Processing flavor: {flav}")
+        print(f"\nProcessing flavor: {flav}")
         mu_name = f"QCD_MuEnriched__QCD_MuEnriched_{flav}"
+        # mg_name = f"QCD_MuEnriched__QCD_MuEnriched_{flav}"  # proof that the code is working as I think
         mg_name = f"QCD_Madgraph__QCD_Madgraph_{flav}"
-        # check that both MuEnriched and Madgraph flavor samples are in the keys
         if mu_name not in histogram_logsumSVmass_tau21 or mg_name not in histogram_logsumSVmass_tau21:
             print(f"------- {mu_name} or {mg_name} not in histogram_logsumSVmass_tau21 -------\n")
             continue
         mu_datasets = histogram_logsumSVmass_tau21[mu_name]
         mg_datasets = histogram_logsumSVmass_tau21[mg_name]
-        mu_sum = sum(h.values().sum() for h in mu_datasets.values())
-        mg_sum = sum(h.values().sum() for h in mg_datasets.values())
-        ratio = mg_sum / mu_sum
-        print(f"mu_sum: {mu_sum}")
-        print(f"mg_sum: {mg_sum}")
-        print(f"ratio (mg/mu): {ratio}\n")
+        mu_total = None
+        mg_total = None
+        for h in mu_datasets.values():
+            h_nom = h[:, "nominal", :, :]
+            mu_total = h_nom if mu_total is None else mu_total + h_nom
+        for h in mg_datasets.values():
+            h_nom = h[:, "nominal", :, :]
+            mg_total = h_nom if mg_total is None else mg_total + h_nom
+        print(f"mu_total.axes: {mu_total.axes}")
+        print(f"mg_total.axes: {mg_total.axes}")
+        # plot_mu_vs_mg(mu_total, mg_total, flav, tau21_cut=0.3)  # see the difference in mu and mg shapes
+        mu_vals = mu_total.values(flow=True)
+        mg_vals = mg_total.values(flow=True)
+        mu_int = mu_vals.sum()
+        mg_int = mg_vals.sum()
+        scale = mu_int / mg_int
+        mg_vals_scaled = mg_vals * scale
+        mask = mu_vals > 1e-9
+        ratio = np.ones_like(mu_vals)
+        ratio[mask] = mg_vals_scaled[mask] / mu_vals[mask]
+        ratio = np.clip(ratio, 0, 2)
         for dataset, h_mu in mu_datasets.items():
-            print(f"dataset: {dataset}")
+            print(f"\ndataset: {dataset}")
             current_vars = list(h_mu.axes["variation"])  # variations already present
             print(f"current_vars: {current_vars}")
             new_vars = current_vars + [f"QCD_MuEnriched_ratioUp", f"QCD_MuEnriched_ratioDown"]  # adding new variations
-            print(f"new_vars: {new_vars}\n")
+            print(f"new_vars: {new_vars}")
             new_vars_axis = StrCategory(new_vars, name="variation")  # new variation axis
             new_hist = Hist(
                 h_mu.axes["cat"],
@@ -253,8 +262,13 @@ def add_Madgraph_systematic(histogram_logsumSVmass_tau21):
             nom_idx = h_mu.axes["variation"].index("nominal")
             up_idx = new_hist.axes["variation"].index("QCD_MuEnriched_ratioUp")
             down_idx = new_hist.axes["variation"].index("QCD_MuEnriched_ratioDown")
-            new_hist.view(flow=True)[:, up_idx, :, :] = (h_mu.view(flow=True)[:, nom_idx, :, :] * ratio)
-            new_hist.view(flow=True)[:, down_idx, :, :] = (h_mu.view(flow=True)[:, nom_idx, :, :] * (2 - ratio))
+            nom_view = h_mu.view(flow=True)[:, nom_idx, :, :]
+            up_view = new_hist.view(flow=True)[:, up_idx, :, :]
+            down_view = new_hist.view(flow=True)[:, down_idx, :, :]
+            up_view["value"] = nom_view["value"] * ratio
+            up_view["variance"] = nom_view["variance"] * ratio**2
+            down_view["value"] = nom_view["value"] * (2 - ratio)
+            down_view["variance"] = nom_view["variance"] * (2 - ratio)**2
             print("Old sum:", h_mu.values(flow=True).sum())
             print("New sum:", new_hist.values(flow=True).sum())
             nominal_integral = new_hist.view(flow=True)[:, nom_idx, :, :].sum().value
@@ -264,26 +278,214 @@ def add_Madgraph_systematic(histogram_logsumSVmass_tau21):
             down_factor = nominal_integral / down_integral
             new_hist.view(flow=True)[:, up_idx, :, :] *= up_factor
             new_hist.view(flow=True)[:, down_idx, :, :] *= down_factor
-            print("Nominal integral:", nominal_integral)
-            print("Up integral after normalization:", new_hist.view(flow=True)[:, up_idx, :, :].sum())
-            print("Down integral after normalization:", new_hist.view(flow=True)[:, down_idx, :, :].sum())
-            # old_nom = h_mu.view(flow=True)[:, h_mu.axes["variation"].index("nominal"), :, :].sum()
-            # new_nom = new_hist.view(flow=True)[:, new_hist.axes["variation"].index("nominal"), :, :].sum()
-            # print("Old nominal:", old_nom)
-            # print("New nominal:", new_nom, "\n")
-            if ratio > 2:
-                raise ValueError(f"ratio > 2 for flavor {flav}, cannot create down variation")
             histogram_logsumSVmass_tau21[mu_name][dataset] = new_hist
+        # plot nominal vs up vs down variations
+        mu_datasets = histogram_logsumSVmass_tau21[mu_name]
+        nom_total = None
+        up_total = None
+        down_total = None
+        for h in mu_datasets.values():
+            h_nom = h[:, "nominal", :, :]
+            nom_total = h_nom if nom_total is None else nom_total + h_nom
+        for h in mu_datasets.values():
+            h_nom = h[:, "QCD_MuEnriched_ratioUp", :, :]
+            up_total = h_nom if up_total is None else up_total + h_nom
+        for h in mu_datasets.values():
+            h_nom = h[:, "QCD_MuEnriched_ratioDown", :, :]
+            down_total = h_nom if down_total is None else down_total + h_nom
+        plot_nom_vs_up_vs_down(nom_total, up_total, down_total, flav, tau21_cut=0.3)
+        nom_vals = nom_total.values(flow=True)
+        up_vals = up_total.values(flow=True)
+        down_vals = down_total.values(flow=True)
+        nom_int = nom_vals.sum()
+        up_int = up_vals.sum()
+        down_int = down_vals.sum()
+        print(f"nom_int: {nom_int}\nup_int: {up_int}\ndown_int: {down_int}")
+
+def add_Madgraph_systematic_1d(histo_1d, cat):
+    qcd_samples = [s for s in histo_1d.keys() if s.startswith("QCD_")]
+    print(f"QCD samples: {qcd_samples}\n")
+    flavors = {s.split("__")[1].split("_")[-1] for s in qcd_samples if "__" in s and len(s.split("__")[1].split("_")) >= 2}
+    print(f"flavors: {flavors}\n")
+    for flav in flavors:
+        print(f"\nProcessing flavor: {flav}")
+        mu_name = f"QCD_MuEnriched__QCD_MuEnriched_{flav}"
+        mg_name = f"QCD_Madgraph__QCD_Madgraph_{flav}"
+        if mu_name not in histo_1d or mg_name not in histo_1d:
+            print(f"Skipping {flav}: {mu_name} or {mg_name} not found in histo_1d")
+            continue
+        mu_datasets = histo_1d[mu_name]
+        mg_datasets = histo_1d[mg_name]
+        mu_total = None
+        mg_total = None
+        for h in mu_datasets.values():
+            h_nom = h[cat, "nominal", :]
+            mu_total = h_nom if mu_total is None else mu_total + h_nom
+        for h in mg_datasets.values():
+            h_nom = h[cat, "nominal", :]
+            mg_total = h_nom if mg_total is None else mg_total + h_nom
+        mu_vals = mu_total.values(flow=True)
+        mg_vals = mg_total.values(flow=True)
+        scale = mu_vals.sum() / mg_vals.sum()
+        mg_vals_scaled = mg_vals * scale
+        mask = mu_vals > 1e-9
+        ratio = np.ones_like(mu_vals)
+        ratio[mask] = mg_vals_scaled[mask] / mu_vals[mask]
+        ratio = np.clip(ratio, 0, 2)
+        for dataset, h_mu in mu_datasets.items():
+            print(f"\ndataset: {dataset}")
+            current_vars = list(h_mu.axes["variation"])
+            # print(f"current_vars: {current_vars}")
+            new_vars = current_vars + [f"QCD_MuEnriched_ratioUp", f"QCD_MuEnriched_ratioDown"]
+            # print(f"new_vars: {new_vars}")
+            new_vars_axis = StrCategory(new_vars, name="variation")
+            new_hist = Hist(
+                h_mu.axes["cat"],
+                new_vars_axis,
+                h_mu.axes["FatJetGood.logsumcorrSVmass"],
+                storage=h_mu.storage_type()
+            )
+            for v in current_vars:
+                idx_old = h_mu.axes["variation"].index(v)
+                idx_new = new_hist.axes["variation"].index(v)
+                cat_idx = h_mu.axes["cat"].index(cat)
+                new_hist.view(flow=True)[cat_idx, idx_new, :] = h_mu.view(flow=True)[cat_idx, idx_old, :]
+            cat_idx = h_mu.axes["cat"].index(cat)
+            nom_idx = h_mu.axes["variation"].index("nominal")
+            up_idx = new_hist.axes["variation"].index("QCD_MuEnriched_ratioUp")
+            down_idx = new_hist.axes["variation"].index("QCD_MuEnriched_ratioDown")
+            nom_view = h_mu.view(flow=True)[cat_idx, nom_idx, :]
+            up_view = new_hist.view(flow=True)[cat_idx, up_idx, :]
+            down_view = new_hist.view(flow=True)[cat_idx, down_idx, :]
+            up_view["value"] = nom_view["value"] * ratio
+            up_view["variance"] = nom_view["variance"] * ratio**2
+            down_view["value"] = nom_view["value"] * (2 - ratio)
+            down_view["variance"] = nom_view["variance"] * (2 - ratio)**2
+            nominal_integral = new_hist.view(flow=True)[cat_idx, nom_idx, :].sum().value
+            up_integral = new_hist.view(flow=True)[cat_idx, up_idx, :].sum().value
+            down_integral = new_hist.view(flow=True)[cat_idx, down_idx, :].sum().value
+            print(f"nominal_integral = {nominal_integral}\nup_integral = {up_integral}\ndown_integral = {down_integral}")
+            if up_integral > 0:
+                up_factor = nominal_integral / up_integral
+                new_hist.view(flow=True)[cat_idx, up_idx, :] *= up_factor
+            else:
+                print(f"Warning: up_integral = 0, skipping renormalization")
+            if down_integral > 0:
+                down_factor = nominal_integral / down_integral
+                new_hist.view(flow=True)[cat_idx, down_idx, :] *= down_factor
+            else:
+                print(f"Warning: down_integral = 0, skipping renormalization")
+            histo_1d[mu_name][dataset] = new_hist
+
+def plot_tau21_mu_vs_mg(histogram_tau21, cat="pt300msd80to170"):
+    qcd_samples = [s for s in histogram_tau21.keys() if s.startswith("QCD_")]
+    flavors = {s.split("__")[1].split("_")[-1] for s in qcd_samples if "__" in s and len(s.split("__")[1].split("_")) >= 2}
+    for flav in flavors:
+        mu_name = f"QCD_MuEnriched__QCD_MuEnriched_{flav}"
+        mg_name = f"QCD_Madgraph__QCD_Madgraph_{flav}"
+        if mu_name not in histogram_tau21 or mg_name not in histogram_tau21:
+            print(f"------- {mu_name} or {mg_name} not in histogram_tau21 -------\n")
+            continue
+        mu_datasets = histogram_tau21[mu_name]
+        mg_datasets = histogram_tau21[mg_name]
+        mu_total = None
+        mg_total = None
+        for h in mu_datasets.values():
+            h_nom = h[cat, "nominal", :]
+            mu_total = h_nom if mu_total is None else mu_total + h_nom
+        for h in mg_datasets.values():
+            h_nom = h[cat, "nominal", :]
+            mg_total = h_nom if mg_total is None else mg_total + h_nom
+        mu_vals = mu_total.values(flow=False)
+        mg_vals = mg_total.values(flow=False)
+        mu_vals = mu_vals / mu_vals.sum()
+        mg_vals = mg_vals / mg_vals.sum()
+        edges = mu_total.axes[0].edges
+        centers = 0.5 * (edges[1:] + edges[:-1])
+        plt.figure(figsize=(7,5))
+        plt.step(centers, mu_vals, where="mid", label="MuEnriched")
+        plt.step(centers, mg_vals, where="mid", label="Madgraph")
+        plt.xlabel("tau21")
+        plt.ylabel("Normalized events")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f"tau21_mu_vs_mg_{flav}.png")
+        plt.close()
+        print(f"Saved tau21_mu_vs_mg_{flav}.png")
+
+def plot_mu_vs_mg(mu_total, mg_total, flavour, tau21_cut=0.3):
+    ax_tau21 = mu_total.axes["FatJetGood.tau21"]
+    bin_stop = next(i for i, edge in enumerate(ax_tau21.edges[1:]) if edge > tau21_cut)
+    mu_1d = mu_total.integrate(ax_tau21.name, 0, bin_stop)
+    mg_1d = mg_total.integrate(ax_tau21.name, 0, bin_stop)
+    mu_1d = mu_1d.project("FatJetGood.logsumcorrSVmass")
+    mg_1d = mg_1d.project("FatJetGood.logsumcorrSVmass")
+    ax_mass = mu_1d.axes["FatJetGood.logsumcorrSVmass"]
+    edges = ax_mass.edges
+    centers = 0.5 * (edges[1:] + edges[:-1])
+    mu_vals = mu_1d.values()
+    mg_vals = mg_1d.values()
+    plt.figure(figsize=(7,5))
+    plt.step(centers, mu_vals, where="mid", label="MuEnriched")
+    plt.step(centers, mg_vals, where="mid", label="Madgraph")
+    plt.xlabel("FatJetGood.logsumcorrSVmass")
+    plt.ylabel("Events")
+    plt.legend()
+    plt.title(f"tau21 < {tau21_cut}")
+    plt.tight_layout()
+    outfile = f"mu_vs_mg_tau21_{tau21_cut}_{flavour}.png"
+    plt.savefig(outfile)
+    plt.close()
+    print(f"Plot saved in: {outfile}")
+
+def plot_nom_vs_up_vs_down(nom_total, up_total, down_total, flavour, tau21_cut=0.3):
+    ax_tau21 = nom_total.axes["FatJetGood.tau21"]
+    bin_stop = next(i for i, edge in enumerate(ax_tau21.edges[1:]) if edge > tau21_cut)
+    nom_1d = nom_total.integrate(ax_tau21.name, 0, bin_stop)
+    up_1d = up_total.integrate(ax_tau21.name, 0, bin_stop)
+    down_1d = down_total.integrate(ax_tau21.name, 0, bin_stop)
+    nom_1d = nom_1d.project("FatJetGood.logsumcorrSVmass")
+    up_1d = up_1d.project("FatJetGood.logsumcorrSVmass")
+    down_1d = down_1d.project("FatJetGood.logsumcorrSVmass")
+    nom_plot_int = nom_1d.values().sum()
+    up_plot_int = up_1d.values().sum()
+    down_plot_int = down_1d.values().sum()
+    print(f"nom_plot_int: {nom_plot_int}\nup_plot_int: {up_plot_int}\ndown_plot_int: {down_plot_int}")
+    up_1d *= nom_plot_int / up_plot_int
+    down_1d *= nom_plot_int / down_plot_int
+    nom_plot_int = nom_1d.values().sum()
+    up_plot_int = up_1d.values().sum()
+    down_plot_int = down_1d.values().sum()
+    print(f"nom_plot_int: {nom_plot_int}\nup_plot_int: {up_plot_int}\ndown_plot_int: {down_plot_int}")
+    ax_mass = nom_1d.axes["FatJetGood.logsumcorrSVmass"]
+    edges = ax_mass.edges
+    centers = 0.5 * (edges[1:] + edges[:-1])
+    nom_vals = nom_1d.values()
+    up_vals = up_1d.values()
+    down_vals = down_1d.values()
+    plt.figure(figsize=(7,5))
+    plt.step(centers, nom_vals, where="mid", label="nominal")
+    plt.step(centers, up_vals, where="mid", label="up")
+    plt.step(centers, down_vals, where="mid", label="down")
+    plt.xlabel("FatJetGood.logsumcorrSVmass")
+    plt.ylabel("Events")
+    plt.legend()
+    plt.title(f"tau21 < {tau21_cut}")
+    plt.tight_layout()
+    outfile = f"nom_vs_up_vs_down_tau21_{tau21_cut}_{flavour}.png"
+    plt.savefig(outfile)
+    plt.close()
+    print(f"Plot saved in: {outfile}")
 
 def get_1d_histogram(h2d_dict, tau21_cut):
     """Function to get the 1D histogram from the 2D histogram by integrating over the axis corresponding to tau21."""
     h1d_dict = {}
     for proc, ds_dict in h2d_dict.items():
-        # print(f"\nProcessing {proc}...\n")
+        print(f"\nProcessing {proc}...")
+        print(f"{ds_dict.keys()}\n")
         h1d_dict[proc] = {}
-        # print(f"{ds_dict.keys()}\n")
         for ds, histo2d in ds_dict.items():
-            # print(f"Dataset: {ds}\n")
+            # print(f"histo2d.axes = {histo2d.axes}\n")
             ax_tau21 = histo2d.axes["FatJetGood.tau21"]
             bin_stop = next(i for i, edge in enumerate(ax_tau21.edges[1:]) if edge > tau21_cut)
             histo_cut = histo2d.integrate(ax_tau21.name, 0, bin_stop)
@@ -456,6 +658,8 @@ def main():
     
     # Extract histograms, cutflow, and metadata
     histograms = output["variables"]
+    # hist_tau21 = histograms["FatJetGood_tau21"]
+    # plot_tau21_mu_vs_mg(hist_tau21, cat="pt300msd80to170")
     cutflow = output["cutflow"]
     datasets_metadata = output["datasets_metadata"]
     if not args.filter_category:
@@ -466,7 +670,7 @@ def main():
     
     # Categorize samples
     samples = categorize_samples(cutflow)
-    print(f"Found samples: {samples}")
+    print(f"\nFound samples: {samples}")
     print(f"Available histograms: {list(histograms.keys())}\n")
 
     successful_categories = []
@@ -486,7 +690,7 @@ def main():
             process.samples = samples[process_name]
 
         # Add the variation QCD_Madgraph/QCD_MuEnriched to the Hist
-        add_Madgraph_systematic(histograms[args.variable])
+        # add_Madgraph_systematic(histograms[args.variable])
         
         systematics = define_systematics([year], [p_name for p_name, p in mc_processes.items()])
         print(f"systematics: {systematics}\n")
@@ -504,12 +708,16 @@ def main():
         
         # Create datacards for each combination
         for cat in categories:
+            print(f"\ncategory: {cat}")
 
             for tau21 in [0.2, 0.25, 0.3, 0.35, 0.4]:
-                print(f"Creating datacard: Year: {year}\tCategory: {cat}\ttau21 < {tau21}")
+                print(f"\n\nCreating datacard: Year: {year}\tCategory: {cat}\ttau21 < {tau21}")
                 
                 # Get the 1D histogram by integrating over tau21 axis with a specific cut: tau21 < tau21_cut
                 histo_1d = get_1d_histogram(histograms[args.variable], tau21)
+                # Add the variation QCD_Madgraph/QCD_MuEnriched to the Hist
+                add_Madgraph_systematic_1d(histo_1d, cat)
+                print("\n")
                 # Create datacard
                 datacard = DatacardMutag(
                     histograms=histo_1d,
@@ -531,10 +739,14 @@ def main():
                 # (pass+fail) region for the corresponding parent
                 # category, to define an external systematic.
                 if abs(tau21 - 0.3) < 1e-6:
+                    print(f"\n\nCreating datacard: Year: {year}\tCategory: {cat}\ttau21 < {tau21} reweighed")
                     parent_category = "-".join(cat.split("-")[:-1])
                     histo_1d_rew = get_1d_histogram_reweighed(
                         histograms[args.variable], tau21, samples, year, parent_category
                     )
+                    # Add the variation QCD_Madgraph/QCD_MuEnriched to the Hist
+                    add_Madgraph_systematic_1d(histo_1d_rew, cat)
+                    print("\n")
                     datacard_rew = DatacardMutag(
                         histograms=histo_1d_rew,
                         datasets_metadata=datasets_metadata,
