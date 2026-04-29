@@ -165,9 +165,10 @@ cfg = Configurator(
                   # "datasets/MC_TTto4Q_run3_redirector.json",
                   # "datasets/MC_singletop_run3_redirector.json",
                   # "datasets/DATA_BTagMu_run3_redirector.json"],
-                   "datasets/skimmed_dataset_definition_madgraph.json",
-                   "datasets/skimmed_dataset_definition_2024.json",
-                   "datasets/skimmed_dataset_definition.json"],
+                  "datasets/skimmed_dataset_definition_madgraph.json",
+                   "datasets/skimmed_dataset_definition_VJets2024.json",
+                  "datasets/skimmed_dataset_definition_2024.json",
+                  "datasets/skimmed_dataset_definition.json"],
         "filter" : {
             "samples": samples,
             "samples_exclude" : [],

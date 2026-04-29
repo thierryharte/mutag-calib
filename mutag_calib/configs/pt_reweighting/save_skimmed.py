@@ -47,7 +47,7 @@ cfg = Configurator(
     save_skimmed_files="root://t3dcachedb03.psi.ch:1094//pnfs/psi.ch/cms/trivcat/store/user/tharte/mutag_samples/",
     parameters = parameters,
     datasets = {
-         "jsons": [# "datasets/MC_VJets_run3.json",
+         "jsons": ["datasets/MC_VJets_run3.json",
                    # "datasets/MC_TTto4Q_run3.json",
                    # "datasets/MC_singletop_run3.json",
                    # "datasets/DATA_BTagMu_run3.json",
@@ -56,17 +56,17 @@ cfg = Configurator(
                    # "datasets/MC_TTto4Q_run3_2024.json",
                    # "datasets/MC_singletop_run3_2024.json",
                    # "datasets/DATA_BTagMu_run3_2024.json",
-                   "datasets/MC_QCD_Madgraph_run3.json"
+                   # "datasets/MC_QCD_Madgraph_run3.json"
                    # "datasets/MC_QCD_MuEnriched_run3_2024.json"
                    ],
         "filter" : {
             "samples": samples,
             "samples_exclude" : [],
             "year": [
-                '2022_preEE',
-                '2022_postEE',
-                '2023_preBPix',
-                '2023_postBPix',
+                # '2022_preEE',
+                # '2022_postEE',
+                # '2023_preBPix',
+                # '2023_postBPix',
                 '2024'
             ]
         },
