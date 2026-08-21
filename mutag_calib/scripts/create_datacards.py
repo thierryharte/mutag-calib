@@ -108,6 +108,7 @@ def define_systematics(years, mc_process_names):
     year = years[0]
     lumi_value = lumi_sys_values[year]
 
+
     systematics = Systematics([
         # Add basic systematic uncertainties
         SystematicUncertainty(
@@ -302,7 +303,15 @@ def add_Madgraph_systematic(histogram_logsumSVmass_tau21):
         down_int = down_vals.sum()
         print(f"nom_int: {nom_int}\nup_int: {up_int}\ndown_int: {down_int}")
 
-def add_Madgraph_systematic_1d(histo_1d, cat):
+def add_Madgraph_systematic_1d(histo_1d, cat, integral_eps=1e-6):
+    """Function to add the Madgraph systematic uncertainty to the histogram.
+
+    integral_eps: below this integral (summed events in a given cat/dataset),
+    a variation is treated as "no data" and the systematic is set to have
+    no effect (up == down == nominal) instead of being renormalized, which
+    is what produces `nan`/`inf` when the process is (almost) empty in a
+    given category.
+    """
     qcd_samples = [s for s in histo_1d.keys() if s.startswith("QCD_")]
     print(f"QCD samples: {qcd_samples}\n")
     flavors = {s.split("__")[1].split("_")[-1] for s in qcd_samples if "__" in s and len(s.split("__")[1].split("_")) >= 2}
@@ -326,18 +335,26 @@ def add_Madgraph_systematic_1d(histo_1d, cat):
             mg_total = h_nom if mg_total is None else mg_total + h_nom
         mu_vals = mu_total.values(flow=True)
         mg_vals = mg_total.values(flow=True)
-        scale = mu_vals.sum() / mg_vals.sum()
-        mg_vals_scaled = mg_vals * scale
-        mask = mu_vals > 1e-9
-        ratio = np.ones_like(mu_vals)
-        ratio[mask] = mg_vals_scaled[mask] / mu_vals[mask]
-        ratio = np.clip(ratio, 0, 2)
+
+        mu_sum = mu_vals.sum()
+        mg_sum = mg_vals.sum()
+        if mu_sum <= integral_eps or mg_sum <= integral_eps:
+            print(f"Skipping flavor {flav} in cat {cat}: MuEnriched or Madgraph "
+                  f"total is ~0 (mu_sum={mu_sum}, mg_sum={mg_sum})")
+            ratio = None  # signal "no meaningful ratio" below
+        else:
+            scale = mu_sum / mg_sum
+            mg_vals_scaled = mg_vals * scale
+            mask = mu_vals > 1e-9
+            ratio = np.ones_like(mu_vals)
+            ratio[mask] = mg_vals_scaled[mask] / mu_vals[mask]
+            ratio = np.clip(ratio, 0, 2)
+            ratio = np.nan_to_num(ratio, nan=1.0, posinf=2.0, neginf=0.0)
+
         for dataset, h_mu in mu_datasets.items():
             print(f"\ndataset: {dataset}")
             current_vars = list(h_mu.axes["variation"])
-            # print(f"current_vars: {current_vars}")
-            new_vars = current_vars + [f"QCD_MuEnriched_ratioUp", f"QCD_MuEnriched_ratioDown"]
-            # print(f"new_vars: {new_vars}")
+            new_vars = current_vars + ["QCD_MuEnriched_ratioUp", "QCD_MuEnriched_ratioDown"]
             new_vars_axis = StrCategory(new_vars, name="variation")
             new_hist = Hist(
                 h_mu.axes["cat"],
@@ -350,6 +367,7 @@ def add_Madgraph_systematic_1d(histo_1d, cat):
                 idx_new = new_hist.axes["variation"].index(v)
                 cat_idx = h_mu.axes["cat"].index(cat)
                 new_hist.view(flow=True)[cat_idx, idx_new, :] = h_mu.view(flow=True)[cat_idx, idx_old, :]
+
             cat_idx = h_mu.axes["cat"].index(cat)
             nom_idx = h_mu.axes["variation"].index("nominal")
             up_idx = new_hist.axes["variation"].index("QCD_MuEnriched_ratioUp")
@@ -357,24 +375,57 @@ def add_Madgraph_systematic_1d(histo_1d, cat):
             nom_view = h_mu.view(flow=True)[cat_idx, nom_idx, :]
             up_view = new_hist.view(flow=True)[cat_idx, up_idx, :]
             down_view = new_hist.view(flow=True)[cat_idx, down_idx, :]
+
+            nom_integral = np.nansum(nom_view["value"])
+
+            if ratio is None or nom_integral <= integral_eps:
+                # Nothing meaningful to reweight for this dataset/category:
+                # make the systematic a no-op (up == down == nominal) instead
+                # of dividing by ~0.
+                up_view["value"] = nom_view["value"]
+                up_view["variance"] = nom_view["variance"]
+                down_view["value"] = nom_view["value"]
+                down_view["variance"] = nom_view["variance"]
+                histo_1d[mu_name][dataset] = new_hist
+                continue
+
             up_view["value"] = nom_view["value"] * ratio
             up_view["variance"] = nom_view["variance"] * ratio**2
             down_view["value"] = nom_view["value"] * (2 - ratio)
             down_view["variance"] = nom_view["variance"] * (2 - ratio)**2
-            nominal_integral = new_hist.view(flow=True)[cat_idx, nom_idx, :].sum().value
-            up_integral = new_hist.view(flow=True)[cat_idx, up_idx, :].sum().value
-            down_integral = new_hist.view(flow=True)[cat_idx, down_idx, :].sum().value
+
+            nominal_integral = np.nansum(new_hist.view(flow=True)[cat_idx, nom_idx, :]["value"])
+            up_integral = np.nansum(up_view["value"])
+            down_integral = np.nansum(down_view["value"])
             print(f"nominal_integral = {nominal_integral}\nup_integral = {up_integral}\ndown_integral = {down_integral}")
-            if up_integral > 0:
+
+            if up_integral > integral_eps:
                 up_factor = nominal_integral / up_integral
-                new_hist.view(flow=True)[cat_idx, up_idx, :] *= up_factor
+                new_hist.view(flow=True)[cat_idx, up_idx, :]["value"] *= up_factor
+                new_hist.view(flow=True)[cat_idx, up_idx, :]["variance"] *= up_factor**2
             else:
-                print(f"Warning: up_integral = 0, skipping renormalization")
-            if down_integral > 0:
+                print("Warning: up_integral ~ 0, skipping renormalization, forcing up = nominal")
+                up_view["value"] = nom_view["value"]
+                up_view["variance"] = nom_view["variance"]
+
+            if down_integral > integral_eps:
                 down_factor = nominal_integral / down_integral
-                new_hist.view(flow=True)[cat_idx, down_idx, :] *= down_factor
+                new_hist.view(flow=True)[cat_idx, down_idx, :]["value"] *= down_factor
+                new_hist.view(flow=True)[cat_idx, down_idx, :]["variance"] *= down_factor**2
             else:
-                print(f"Warning: down_integral = 0, skipping renormalization")
+                print("Warning: down_integral ~ 0, skipping renormalization, forcing down = nominal")
+                down_view["value"] = nom_view["value"]
+                down_view["variance"] = nom_view["variance"]
+
+            # Final belt-and-braces: kill any nan/inf that could still have
+            # crept in (e.g. from earlier variations copied via `current_vars`).
+            new_hist.view(flow=True)[cat_idx, :, :]["value"] = np.nan_to_num(
+                new_hist.view(flow=True)[cat_idx, :, :]["value"], nan=0.0, posinf=0.0, neginf=0.0
+            )
+            new_hist.view(flow=True)[cat_idx, :, :]["variance"] = np.nan_to_num(
+                new_hist.view(flow=True)[cat_idx, :, :]["variance"], nan=0.0, posinf=0.0, neginf=0.0
+            )
+
             histo_1d[mu_name][dataset] = new_hist
 
 def plot_tau21_mu_vs_mg(histogram_tau21, cat="pt300msd80to170"):
@@ -624,6 +675,40 @@ def get_1d_histogram_reweighed(h2d_dict, tau21_cut, samples, year, parent_catego
 
     return h1d_dict
 
+def sanitize_shape_variations(histo_1d, mc_sample_names, epsilon=1e-9):
+    """Enforce nominal/variation consistency and remove nan/inf.
+
+    Rule: wherever the nominal value in a bin is ~0, force every variation
+    in that bin to 0 as well. This prevents Combine's kappa/extra-norm
+    computation (integral(up)/integral(nominal)) from ever seeing a
+    variation with content in a bin where the nominal has none, which is
+    the most common source of `Bogus norm nan`.
+    """
+    for proc_name, ds_dict in histo_1d.items():
+        if proc_name not in mc_sample_names:
+            continue
+        for ds, h in ds_dict.items():
+            if "variation" not in [ax.name for ax in h.axes]:
+                continue
+            var_axis = h.axes["variation"]
+            if "nominal" not in list(var_axis):
+                continue
+            nom_idx = var_axis.index("nominal")
+            view = h.view(flow=True)
+
+            # nan/inf cleanup everywhere first
+            view["value"] = np.nan_to_num(view["value"], nan=0.0, posinf=0.0, neginf=0.0)
+            view["variance"] = np.nan_to_num(view["variance"], nan=0.0, posinf=0.0, neginf=0.0)
+
+            nom_values = view["value"][:, nom_idx, :]
+            zero_mask = nom_values <= epsilon  # shape: (n_cat, n_fit)
+
+            for v_idx in range(view.shape[1]):
+                if v_idx == nom_idx:
+                    continue
+                view["value"][:, v_idx, :] = np.where(zero_mask, 0.0, view["value"][:, v_idx, :])
+                view["variance"][:, v_idx, :] = np.where(zero_mask, 0.0, view["variance"][:, v_idx, :])
+
 def print_report(successful_categories, failed_categories):
     for d_cat in successful_categories:
         print(f"✅ Year: {d_cat['year']}, Category: {d_cat['category']}, Folder: {d_cat['folder']}")
@@ -679,6 +764,7 @@ def main():
     for year in args.years:
         # Define processes and systematics
         mc_processes, data_processes = define_processes(samples, [year])
+        print(f"year: {year}")
         print(f"MC processes: {mc_processes.items()}")
         print(f"DATA processes: {data_processes.items()}\n")
         
@@ -713,10 +799,12 @@ def main():
             for tau21 in [0.2, 0.25, 0.3, 0.35, 0.4]:
                 print(f"\n\nCreating datacard: Year: {year}\tCategory: {cat}\ttau21 < {tau21}")
                 
+                mc_sample_names = set(samples["light"] + samples["c"] + samples["b"])
                 # Get the 1D histogram by integrating over tau21 axis with a specific cut: tau21 < tau21_cut
                 histo_1d = get_1d_histogram(histograms[args.variable], tau21)
                 # Add the variation QCD_Madgraph/QCD_MuEnriched to the Hist
                 add_Madgraph_systematic_1d(histo_1d, cat)
+                sanitize_shape_variations(histo_1d, mc_sample_names)
                 print("\n")
                 # Create datacard
                 datacard = DatacardMutag(

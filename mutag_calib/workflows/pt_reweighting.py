@@ -64,6 +64,8 @@ class ptReweightProcessor(fatjetBaseProcessor):
         else:
             tagger = "particleNet_XbbVsQCD"
         self.events["FatJetGood"] = ak.with_field(self.events["FatJetGood"], self.events["FatJetGood"][tagger], "btag")
+        self.events["FatJetGoodJet0"] = ak.pad_none(self.events.FatJetGood, 1, clip=True)[:, 0]
+        self.events["FatJetGoodJet1"] = ak.pad_none(self.events.FatJetGood, 2, clip=True)[:, 1]
 
 
 class ptReweightProcessorSkimonly(fatjetBaseProcessor):

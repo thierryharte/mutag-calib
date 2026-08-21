@@ -182,7 +182,7 @@ def plot_r_vs_tau21_ROOT(year, category, tau, r, err_up, err_dn, outname, sf_typ
     c.Close()
 
 # plot SFs for tau21 = 0.30 per each year
-def plot_r_vs_category(year, data, outdir, sf_type):
+def plot_r_vs_category(year, data, outdir, ALLOWED_CATEGORIES, sf_type):
     cats = [c for c in ALLOWED_CATEGORIES if c in data]
     cats = sorted(cats)
     x = np.arange(len(cats))
@@ -307,9 +307,9 @@ def plot_r_vs_category_ROOT(year, cats, r, err_fit_up, err_fit_dn, tau21_err, rw
     c.SaveAs(outname)
     c.Close()
 
-def save_latex_table(data, output_dir, sf_type="b"):
+def save_latex_table(data, output_dir, ALLOWED_CATEGORIES, sf_type="b", cat_coll="normal_category"):
     os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.join(output_dir, f"SF{sf_type}_table.tex")
+    filename = os.path.join(output_dir, f"SF{sf_type}_{cat_coll}_table.tex")
 
     with open(filename, "w") as f:
         f.write("\\begin{table}[htbp]\n")
@@ -368,7 +368,7 @@ def main():
     sf_type = args.SF_type
 
     for category_collection, ALLOWED_CATEGORIES in ALLOWED_CATEGORIES_SF_PLOT.items():
-        data, tau_rew_data = collect_results(base_dir, ALLOWED_CATEGORIES=ALLOWED_CATEGORIES, sf_type=sf_type)
+        data = collect_results(base_dir, ALLOWED_CATEGORIES=ALLOWED_CATEGORIES, sf_type=sf_type)
         for year in data:
             year_out = f"{args.output_dir}/{year}"
 
@@ -377,8 +377,8 @@ def main():
                 plot_r_vs_tau21(year, cat, res, os.path.join(year_out, f"SF{sf_type}_vs_tau21_{cat}_{category_collection}.png"), sf_type)
                 print(f"[OK] Plotted SF vs tau21 for {year} {cat}")
 
-            tau21_errors = plot_r_vs_category(year, data[year], tau_rew_data[year], os.path.join(year_out, f"SF{sf_type}_vs_category_tau21_0p30.pdf"), ALLOWED_CATEGORIES, sf_type)
-            tau21_errors = plot_r_vs_category(year, data[year], tau_rew_data[year], os.path.join(year_out, f"SF{sf_type}_vs_category_tau21_0p30.png"), ALLOWED_CATEGORIES, sf_type)
+            tau21_errors = plot_r_vs_category(year, data[year], os.path.join(year_out, f"SF{sf_type}_{category_collection}_vs_category_tau21_0p30.pdf"), ALLOWED_CATEGORIES, sf_type)
+            tau21_errors = plot_r_vs_category(year, data[year], os.path.join(year_out, f"SF{sf_type}_{category_collection}_vs_category_tau21_0p30.png"), ALLOWED_CATEGORIES, sf_type)
             print(f"[OK] Plotted SF vs category for {year}")
 
             # salva errore tau21
@@ -386,7 +386,7 @@ def main():
                 json.dump(tau21_errors, f, indent=2)
             print(f"[OK] Saved tau21 uncertainties for {year}")
 
-    save_latex_table(data, args.output_dir, sf_type=sf_type)
+        save_latex_table(data, args.output_dir, ALLOWED_CATEGORIES, sf_type=sf_type, cat_coll=category_collection)
 
 
 if __name__ == "__main__":
