@@ -60,7 +60,7 @@ class ptReweightProcessor(fatjetBaseProcessor):
 
         # Define a new field called btag, that depends on what we will cut on later on.
         if "2024" in self._year:
-            tagger = "globalParT3_Xbb"
+            tagger = "globalParT3_XbbVsQCD"
         else:
             tagger = "particleNet_XbbVsQCD"
         self.events["FatJetGood"] = ak.with_field(self.events["FatJetGood"], self.events["FatJetGood"][tagger], "btag")

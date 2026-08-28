@@ -64,7 +64,7 @@ for coll in collections:
                                                            label=r"FatJet $m_{SD}$ [GeV]", bins=list(range(0, 410, 10)))]
     )
     variables[f"{coll}_tau21"] = HistConf([Axis(name=f"{coll}_tau21", coll=coll, field="tau21",
-                                                           label=r"FatJet $\tau_{21}$", bins=[0, 0.20, 0.25, 0.30, 0.35, 
+                                                           label=r"FatJet $\tau_{21}$", bins=[0, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 
                                                            0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 1])]
     )
     variables[f"{coll}_pt_eta"] = HistConf(
@@ -81,7 +81,7 @@ for coll in collections:
           Axis(name=f"{coll}_eta", coll=coll, field="eta", type="variable", label=r"FatJet $\eta$",
                bins=[-5, -2, -1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 5]),
           Axis(name=f"{coll}_tau21", coll=coll, field="tau21", type="variable", label=r"FatJet $\tau_{21}$",
-               bins=[0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1]) ]
+               bins=[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1]) ]
     )
     variables[f"{coll}_pt_eta_tau21_bintau05"] = HistConf(
         [ Axis(name=f"{coll}_pos", coll=coll, field="pos", type="int", label=r"FatJet position", bins=2, start=0, stop=2),
@@ -90,7 +90,7 @@ for coll in collections:
           Axis(name=f"{coll}_eta", coll=coll, field="eta", type="variable", label=r"FatJet $\eta$",
                bins=[-5, -2, -1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 5]),
           Axis(name=f"{coll}_tau21", coll=coll, field="tau21", type="variable", label=r"FatJet $\tau_{21}$",
-               bins=[0, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 1]) ]
+               bins=[0, 0.1, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 1]) ]
     )
 
 cfg = Configurator(
@@ -109,10 +109,10 @@ cfg = Configurator(
             "samples": samples,
             "samples_exclude" : [],
             "year": [
-                '2022_preEE',
-                '2022_postEE',
-                '2023_preBPix',
-                '2023_postBPix',
+                # '2022_preEE',
+                # '2022_postEE',
+                # '2023_preBPix',
+                # '2023_postBPix',
                 '2024'
             ]
         },
@@ -136,8 +136,8 @@ cfg = Configurator(
         # "pt300msd80" : [get_ptmsd(300., 80.)],
         # "pt300msd30to210" : [get_ptmsd_window(300., 30., 210.)],
         # "pt300msd80to170" : [get_ptmsd_window(300., 80., 170.)],
-        "pt250msd50mreg50to200bbtag05": [get_ptmsd(250., 50.), get_mregbin(50., 200.), get_tagger_pass(["btag"], 0.05)],
-        "pt250msd50mreg50to200bbtag65": [get_ptmsd(250., 50.), get_mregbin(50., 200.), get_tagger_pass(["btag"], 0.65)],
+        # "pt250msd50mreg50to200bbtag05": [get_ptmsd(250., 50.), get_mregbin(50., 200.), get_tagger_pass(["btag"], 0.05)],
+        # "pt250msd50mreg50to200bbtag65": [get_ptmsd(250., 50.), get_mregbin(50., 200.), get_tagger_pass(["btag"], 0.65)],
         "pt250msd50mreg50to200": [get_ptmsd(250., 50.), get_mregbin(50., 200.)],
     },
 

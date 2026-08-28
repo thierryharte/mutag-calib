@@ -25,7 +25,7 @@ def read_r(path, sf_type="b"):
 def collect_results(base_dir, ALLOWED_CATEGORIES, sf_type="b"):
     data = {}
     for year in sorted(os.listdir(base_dir)):
-        for cat in sorted(ALLOWED_CATEGORIES):
+        for cat in ALLOWED_CATEGORIES:
             base = os.path.join(base_dir, year, cat)
             if not os.path.isdir(base):
                 continue
@@ -71,13 +71,18 @@ def pt_label_from_category(cat):
     lo, hi = m.group(1), m.group(2)
 
     if hi == "Inf":
-        return r"p_{T} \geq %s" % lo
+        return r"p_{T} \geq %s" % (lo)
     else:
         return r"p_{T} = [%s, %s]" % (lo, hi)
     # return r"p_{T} = [%s, %s]" % (lo, hi)
 
 # helper function to set dynamic y range
-def set_dynamic_y_range(graph, y, err_up, err_dn, n_sigma=1.5):
+def set_dynamic_y_range(graph, y, err_up, err_dn, n_sigma=1.5, fixed_range=None):
+    # fixed_range=(lo, hi) overrides the automatic range with hard limits
+    if fixed_range is not None:
+        lo, hi = fixed_range
+        graph.GetYaxis().SetRangeUser(lo, hi)
+        return lo
     max_err = max(
         max(err_up) if err_up else 0,
         max(err_dn) if err_dn else 0
@@ -144,7 +149,7 @@ def plot_r_vs_tau21_ROOT(year, category, tau, r, err_up, err_dn, outname, sf_typ
     g.GetYaxis().SetTitle(f"SF_{{{sf_type}}}")
     g.GetYaxis().SetTitleSize(0.05)
     g.GetYaxis().SetTitleOffset(0.9)
-    y_margin = set_dynamic_y_range(g, r, err_up, err_dn, n_sigma=1.5)
+    y_margin = set_dynamic_y_range(g, r, err_up, err_dn, n_sigma=1.5, fixed_range=(0.9, 1.1))
     g.GetYaxis().SetNdivisions(120, 0, 0)
 
     c.SetGrid()
@@ -184,7 +189,6 @@ def plot_r_vs_tau21_ROOT(year, category, tau, r, err_up, err_dn, outname, sf_typ
 # plot SFs for tau21 = 0.30 per each year
 def plot_r_vs_category(year, data, outdir, ALLOWED_CATEGORIES, sf_type):
     cats = [c for c in ALLOWED_CATEGORIES if c in data]
-    cats = sorted(cats)
     x = np.arange(len(cats))
     r, eup, edn, eup_tot, edn_tot, tau_err, rw_err = [], [], [], [], [], [], []
     for cat in cats:
@@ -250,7 +254,7 @@ def plot_r_vs_category_ROOT(year, cats, r, err_fit_up, err_fit_dn, tau21_err, rw
     g_tot.GetYaxis().SetTitle(f"SF_{{{sf_type}}}")
     g_tot.GetYaxis().SetTitleSize(0.05)
     g_tot.GetYaxis().SetTitleOffset(0.9)
-    y_margin = set_dynamic_y_range(g_tot, r, err_up_tot, err_dn_tot, n_sigma=1.5)
+    y_margin = set_dynamic_y_range(g_tot, r, err_up_tot, err_dn_tot, n_sigma=1.5, fixed_range=(0.8, 1.2))
     g_tot.GetYaxis().SetNdivisions(120, 0, 0)
 
     c.SetGrid()
@@ -271,20 +275,36 @@ def plot_r_vs_category_ROOT(year, cats, r, err_fit_up, err_fit_dn, tau21_err, rw
         box.Draw("same")
         boxes.append(box)
 
-    labels = []
+    # first line: pT window per category; second line: trailing category word
+    # (cat.split('_')[-1]), merged into a single label over neighbouring
+    # categories that share the same word.
+    pt_labels, cat_words = [], []
     for cat in cats:
         m = re.search(r"Pt-(\d+)to(\d+|Inf)", cat)
         lo, hi = m.group(1), m.group(2)
-        labels.append(f"[{lo}, {hi}]")
+        pt_labels.append(f"[{lo}, {hi}]")
+        cat_words.append(cat.split('_')[-1])
+
     latex = ROOT.TLatex()
     latex.SetTextAlign(22)
     latex.SetTextSize(0.04)
-    if sf_type == "b":
-        for i, label in enumerate(labels):
-            latex.DrawLatex(i+1, y_margin - 0.01, label)
-    else:
-        for i, label in enumerate(labels):
-            latex.DrawLatex(i+1, y_margin - 0.05, label)
+
+    # vertical placement: first line just below the axis, second line one step lower
+    y_line1 = y_margin - (0.01 if sf_type == "b" else 0.05)
+    hist = g_tot.GetHistogram()
+    yspan = (hist.GetMaximum() - hist.GetMinimum()) if hist else (max(r) - min(r) or 1.0)
+    y_line2 = y_line1 - 0.06 * yspan
+
+    for i, label in enumerate(pt_labels):
+        latex.DrawLatex(i + 1, y_line1, label)
+
+    i = 0
+    while i < len(cat_words):
+        j = i
+        while j + 1 < len(cat_words) and cat_words[j + 1] == cat_words[i]:
+            j += 1
+        latex.DrawLatex(((i + 1) + (j + 1)) / 2.0, y_line2, cat_words[i])
+        i = j + 1
 
     # CMS Preliminary
     latex.SetNDC()
@@ -319,7 +339,7 @@ def save_latex_table(data, output_dir, ALLOWED_CATEGORIES, sf_type="b", cat_coll
         f.write("year & category $p_\\mathrm{T}$ [GeV] & $\\mathrm{SF_{nominal}}$ & $\\mathrm{err_{fit}}$ & $\\tau_{21}^\\mathrm{{cut}}$ & $\\tau_{21}^\\mathrm{reweight}$ & $\\sigma_\\mathrm{tot}$ \\\\\n")
         f.write("\\hline\n")
 
-        for year in sorted(data.keys()):
+        for year in data.keys():
             f.write("\\hline\n")
             for cat in ALLOWED_CATEGORIES:
                 if cat not in data[year]:

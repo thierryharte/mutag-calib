@@ -24,7 +24,7 @@ object_preselection:
   FatJet:
     pt: 250.0
     eta: 2.4
-    msd: 30.0
+    msd: 50.0
     jetId: 2
     nmu: 1
     #nsubjet: 2
