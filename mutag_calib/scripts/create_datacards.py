@@ -32,6 +32,10 @@ with open(LUMI_YAML) as f:
     lumi_cfg = yaml.safe_load(f)
 lumi_sys_values = lumi_cfg["lumi_systematics"]
 
+TAU21_VALUES = [0.15, 0.30, 1.0]
+TAU21_NOMINAL = 0.30
+TAU21_VAR_DOWN = 0.15
+TAU21_VAR_UP = 1.0
 
 def define_processes(samples, years):
     """Define MC and data processes for the analysis."""
@@ -217,9 +221,6 @@ def get_passfail_ratio(datacards):
 
     return dict(passfail_ratio)
 
-TAU21_NOMINAL = 0.30
-TAU21_VAR_DOWN = 0.15
-TAU21_VAR_UP = 1.0
 
 
 def add_tau21_variation_1d(histo_nom, histo_down, histo_up, cat, mc_processes, years,
@@ -980,11 +981,7 @@ def main():
             tau21_syst_name = f"tau21_var_{region}"
             systematics_tau21 = systematics_tau21_by_region[region] if args.tau21_var else systematics
 
-            # for tau21 in [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.60, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1]:
-            # for tau21 in [0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.60, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]:
-            for tau21 in [0.15, 0.3, 1.0]:
-            # for tau21 in [0.60]:
-            # for tau21 in [0.2, 0.25, 0.3, 0.35, 0.4]:
+            for tau21 in TAU21_VALUES:
                 print(f"\n\nCreating datacard: Year: {year}\tCategory: {cat}\ttau21 < {tau21}")
                 
                 is_tau21_nominal = abs(tau21 - TAU21_NOMINAL) < 1e-6
@@ -1070,11 +1067,7 @@ def main():
         # Loop over categories again to dump datacards modified with pass/fail ratios
         parent_categories = set()
         for cat in categories:
-            # for tau21 in [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.60, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1]:
-            # for tau21 in [0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.60, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]:
-            for tau21 in [0.15, 0.3, 1.0]:
-            # for tau21 in [0.60]:
-            # for tau21 in [0.2, 0.25, 0.3, 0.35, 0.4]:
+            for tau21 in TAU21_VALUES:
                 # Extract parent category (without pass/fail)
                 parent_category = '-'.join(cat.split("-")[:-1])
                 parent_categories.add(parent_category)
@@ -1124,11 +1117,7 @@ def main():
 
         # Create combined datacard for pass+fail regions, for each parent category
         for parent_cat in parent_categories:
-            # for tau21 in [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.60, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1]:
-            # for tau21 in [0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.60, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]:
-            for tau21 in [0.15, 0.3, 1.0]:
-            # for tau21 in [0.60]:
-            # for tau21 in [0.2, 0.25, 0.3, 0.35, 0.4]:
+            for tau21 in TAU21_VALUES:
                 print(f"\nCreating combined datacard for category: {parent_cat} with tau21 < {tau21} (pass + fail)")
                 tau21_str = get_tau21_str(tau21)
                 directory = output_dir / year / parent_cat / tau21_str

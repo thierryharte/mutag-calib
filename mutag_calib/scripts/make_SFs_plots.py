@@ -13,12 +13,7 @@ from pathlib import Path
 
 from allowed_categories import ALLOWED_CATEGORIES_SF_PLOT
 
-# TAU21_VALUES = [0.15, 0.20, 0.25, 0.30, 0.35, 0.40]
-# TAU21_VALUES = [0.20, 0.25, 0.30, 0.35, 0.40]
-# TAU21_VALUES = [0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0]
 TAU21_VALUES = [0.15, 0.30, 1.0]
-# TAU21_VALUES = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0]
-# TAU21_VALUES = [0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0]
 TAU21_CENTRAL = 0.30
 
 # Fallback tagger name / WP score thresholds, used whenever --wp-config can't
@@ -484,6 +479,48 @@ def save_latex_table(data, output_dir, ALLOWED_CATEGORIES, sf_type="b", cat_coll
 
 def save_correctionlib_json(data, output_dir, ALLOWED_CATEGORIES, sf_type="b", cat_coll="normal_category",
                              error_method="tau21", wp_config=DEFAULT_WP_CONFIG, config_year="2024"):
+    """
+    Create correctionlib jsons for usage fo the scale factors.
+
+    The necessary information is taken from the mutag_configuration script in the params.
+    Note, that the under-/overflow bins are currently hard-coded to be 15% in the case of SFb and 40% in the case of SFc.
+
+    Changes and improvements expected.
+
+    ===================
+    📈 globalParT3_XbbVsQCD_b_wp_values (v1)
+    Extract working point values (lower limits) for the bb-jet discrimination for globalParT3_XbbVsQCD. Working points included: LP, MP, HP, VHP.
+    Node counts: Category: 1
+    ╭──────────────────────── ▶ input ─────────────────────────╮
+    │ working_point (string)                                   │
+    │ Working points or purity regions used for discrimination │
+    │ Values: HP, LP, MP, VHP                                  │
+    │ has default (1.0 +- 0.15)                                │
+    ╰──────────────────────────────────────────────────────────╯
+    ╭───────────────────────── ◀ output ──────────────────────────╮
+    │ value (real)                                                │
+    │ Lower edge of the score window for the given working point. │
+    ╰─────────────────────────────────────────────────────────────╯
+    📈 globalParT3_XbbVsQCD_b_multi_purities_4pt_bins (v1)
+    No description
+    Node counts: Category: 12, Binning: 44
+    ╭───────────────────────────────────────────────────────────────────── ▶ input ──────────────────────────────────────────────────────────────────────╮ ╭──────── ▶ input ────────╮
+    │ systematic (string)                                                                                                                                │ │ working_point (string)  │
+    │ 'central' for nominal SF. 'up/down' for total SF variation (reweight #oplus internalised). Other 'up/down_X' for additional uncertainty breakdown. │ │ LP/MP/HP/VHP            │
+    │ Values: central, down, down_internalised, down_rew, down_reweight_signal, down_tau21, up, up_internalised, up_rew, up_reweight_signal, up_tau21    │ │ Values: HP, LP, MP, VHP │
+    ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │ has default             │
+                                                                                                                                                           ╰─────────────────────────╯
+    ╭───────────────────────────────────────────────────────────────────── ▶ input ──────────────────────────────────────────────────────────────────────╮
+    │ pt (real)                                                                                                                                          │
+    │ FatJet pT                                                                                                                                          │
+    │ Range: [250.0, 9999.0), overflow ok                                                                                                                │
+    ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+    ╭─── ◀ output ───╮
+    │ weight (real)  │
+    │ No description │
+    ╰────────────────╯
+    ====================
+    """
     compute_chosen_unc = ERROR_METHOD_INFO[error_method]["compute"]
     keys = ["central", "up", "down", "up_rew", "down_rew", "up_tau21", "down_tau21",
             "up_internalised", "down_internalised"]

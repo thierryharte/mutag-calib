@@ -1,3 +1,18 @@
+""" Define categories, that are to be processed by the following scripts:
+
+- ALLOWED_CATEGORIES
+    - run_fit_results.py
+    - run_all_combine_plots.py
+This is just a list of categories that are to be processed.
+Any item in the list that is not in the datacards is just ignored. Therefore, it doesn't hurt to have too many categories active.
+
+
+- ALLOWED_CATEGORIES_SF_PLOT
+    - make_SFs_plots.py
+This is a dictionary of different binnings for SF combinations. Every dictionary entry represents one set of SFs that are to be combined into one set.
+These should ideally be mutually exclusive. No checks are performed in that regard.
+"""
+
 ALLOWED_CATEGORIES = {
     # HHbbtt / HHbbgg categories (from upstream)
     "msd-80to170_Pt-300to350_particleNet_XbbVsQCD-HHbbtt",
