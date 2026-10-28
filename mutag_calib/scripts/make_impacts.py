@@ -1,8 +1,14 @@
-"""Make combine impact plots for one fit folder.
+"""Make combine impact plots for every fit folder below a directory.
 
-Run inside a folder containing workspace.root (and ideally fit_status.json):
+Every folder below --input (default: current folder, included) that contains a
+workspace.root (and ideally fit_status.json) and whose name matches --select
+(default: tau21_0p30, use '*' for all) is processed:
 
-    python3 make_impacts.py [--parallel 8] [--mcstat-total]
+    python3 make_impacts.py [--input .] [--select tau21_0p30] [--outdir ../combine_plots/impacts]
+                            [--parallel 8] [--mcstat-total]
+
+With --outdir, the plots of each folder are copied there with the folder path
+as prefix, e.g. 2024_<category>_tau21_0p30_impacts_SF_b.pdf.
 
 Fit options (POIs, frozen parameters, parameter ranges, minimizer strategy) are
 taken from the FitDiagnostics command stored in fit_status.json, so the impacts
@@ -21,10 +27,12 @@ Steps:
   5. plot impacts_<POI>.pdf for every POI
 """
 import argparse
+import fnmatch
 import json
 import math
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -191,17 +199,9 @@ def add_mcstat_entry(impacts):
     json.dump(data, open("impacts.json", "w"), indent=2)
 
 
-def main():
+def make_impacts(args):
+    """Run all steps in the current folder; return the produced plot files."""
     global COMMON, STRATEGY
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--parallel", type=int, default=8, help="parallel nuisance fits (default 8)")
-    parser.add_argument("--mcstat-total", action="store_true",
-                        help="show one combined autoMCStats entry instead of one per bin (prop_bin*)")
-    args = parser.parse_args()
-
-    if not os.path.exists("workspace.root"):
-        sys.exit("No workspace.root in %s" % os.getcwd())
-
     pois, frozen, COMMON, STRATEGY = build_options(read_fit_options())
     exclude = ",".join(frozen + (["rgx{prop_bin.*}"] if args.mcstat_total else []))
     print("POIs: %s | frozen: %s | exclude: %s" % (pois, frozen, exclude))
@@ -231,7 +231,7 @@ def main():
     else:
         print("All nuisance fits OK")
     if not os.path.exists("impacts.json"):
-        sys.exit("impacts.json was not produced, check the output above")
+        raise RuntimeError("impacts.json was not produced, check the output above")
 
     if args.mcstat_total:
         impacts = mcstat_total_impact(pois)
@@ -241,7 +241,60 @@ def main():
     print("\n=== Step 5: plots ===")
     for poi in pois:
         run(["plotImpacts.py", "-i", "impacts.json", "-o", "impacts_%s" % poi, "--POI", poi])
-    print("\nDone: " + ", ".join("impacts_%s.pdf" % p for p in pois))
+    plots = [f for f in sorted(os.listdir(".")) for p in pois
+             if os.path.splitext(f)[0] == "impacts_%s" % p and f.endswith((".pdf", ".png"))]
+    print("\nDone: " + ", ".join(plots))
+    return plots
+
+
+def find_fit_folders(top, pattern):
+    return sorted(os.path.abspath(d) for d, _, files in os.walk(top)
+                  if "workspace.root" in files and fnmatch.fnmatch(os.path.basename(os.path.abspath(d)), pattern))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--input", default=".", help="folder searched recursively for workspace.root (default: .)")
+    parser.add_argument("--outdir", default=None,
+                        help="copy all impact plots here, prefixed with the fit folder path (default: keep in place)")
+    parser.add_argument("--select", default="tau21_0p30",
+                        help="only fit folders whose name matches this (glob) pattern, '*' for all "
+                             "(default: tau21_0p30, the nominal working point)")
+    parser.add_argument("--parallel", type=int, default=8, help="parallel nuisance fits (default 8)")
+    parser.add_argument("--mcstat-total", action="store_true",
+                        help="show one combined autoMCStats entry instead of one per bin (prop_bin*)")
+    args = parser.parse_args()
+
+    top = os.path.abspath(args.input)
+    outdir = os.path.abspath(args.outdir) if args.outdir else None
+    folders = find_fit_folders(top, args.select)
+    if not folders:
+        sys.exit("No workspace.root in a folder matching '%s' below %s" % (args.select, top))
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
+    print("Found %d fit folders below %s" % (len(folders), top))
+
+    failed = []
+    for i, folder in enumerate(folders, 1):
+        rel = os.path.relpath(folder, top)
+        print("\n" + "#" * 80 + "\n# [%d/%d] %s\n" % (i, len(folders), rel) + "#" * 80, flush=True)
+        os.chdir(folder)
+        try:
+            plots = make_impacts(args)
+        except Exception as e:
+            print("ERROR in %s: %s" % (rel, e))
+            failed.append(rel)
+            continue
+        if outdir:
+            prefix = "" if rel == "." else rel.replace(os.sep, "_") + "_"
+            for plot in plots:
+                shutil.copy(plot, os.path.join(outdir, prefix + plot))
+
+    print("\nProcessed %d/%d folders" % (len(folders) - len(failed), len(folders)))
+    if outdir:
+        print("Plots saved to %s" % outdir)
+    if failed:
+        print("FAILED: " + ", ".join(failed))
 
 
 if __name__ == "__main__":

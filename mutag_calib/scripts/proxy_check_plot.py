@@ -31,6 +31,7 @@ DEFAULT_VARS = [
     "FatJetGood_particleNet_XbbVsQCD",
     "FatJetGood_particleNetLegacy_XbbVsQCD",
     "FatJetGood_globalParT3_XbbVsQCD",
+    "FatJetGood_logsumcorrSVmass"
 ]
 SIG_PREFIX = "GluGluHHto4B_Par-c2-0p00-kl-1p00-kt-1p00_TuneCP5_13p6TeV_powheg-pythia8"
 DEFAULT_BKG_SAMPLES = [
@@ -60,7 +61,7 @@ def parse_args():
                         "'nmu-1', 'nmu-1-matched', 'nmu-1-matched-unique', 'nmu-2'. "
                         "When set, every tau21 category is combined with this nmu bin "
                         "(category name '<tau21>_<nmu>'). Omit for outputs without the nmu dimension.")
-    p.add_argument("--rebin", type=int, default=2,
+    p.add_argument("--rebin", type=int, default=1,
                    help="merge this many 0.01-wide score bins into one (default: %(default)s)")
     p.add_argument("--logy", action="store_true", help="log scale on the y axis")
     return p.parse_args()

@@ -13,7 +13,8 @@ from pathlib import Path
 
 from allowed_categories import ALLOWED_CATEGORIES_SF_PLOT
 
-TAU21_VALUES = [0.15, 0.30, 1.0]
+# TAU21_VALUES = [0.15, 0.30, 1.0]
+TAU21_VALUES = [0.30]
 TAU21_CENTRAL = 0.30
 
 # Fallback tagger name / WP score thresholds, used whenever --wp-config can't
@@ -103,7 +104,10 @@ def collect_results(base_dir, ALLOWED_CATEGORIES, sf_type="b"):
 def compute_tau21_unc(results):
     r0, _, _ = results[TAU21_CENTRAL]
     diffs = [abs(results[t][0] - r0) for t in TAU21_VALUES if t != TAU21_CENTRAL]
-    return max(diffs)
+    if len(diffs) < 1:
+        return 0.0
+    else:
+        return max(diffs)
 
 # always-on systematic: MC reweighted to data at the nominal tau21 cut
 def compute_reweight_unc(results):
@@ -327,24 +331,30 @@ def plot_r_vs_category_ROOT(year, cats, r, err_fit_up, err_fit_dn, chosen_err, r
     g_tot.SetMarkerColor(ROOT.kBlue+1)
     g_tot.SetLineColor(ROOT.kBlue+1)
 
+    # rotate the pT labels once there are too many to fit side by side
+    rotate_labels = n > 8
+    bottom_margin = 0.27 if rotate_labels else 0.17
+
     c = ROOT.TCanvas("c", "", 1600, 1200)
-    c.SetMargin(0.12, 0.05, 0.15, 0.08)
+    c.SetMargin(0.12, 0.05, bottom_margin, 0.08)
 
     g_tot.SetTitle("")
     g_tot.GetXaxis().SetTitle("p_{T} category [GeV]")
     g_tot.GetXaxis().SetTitleSize(0.04)
-    g_tot.GetXaxis().SetTitleOffset(1.3)
+    g_tot.GetXaxis().SetTitleOffset(3.4 if rotate_labels else 1.9)
     g_tot.GetXaxis().SetLimits(0.5, n+0.5)
-    g_tot.GetXaxis().SetNdivisions(3, 0, 0)
+    # one tick between each pair of neighbouring categories (limits are 0.5..n+0.5)
+    g_tot.GetXaxis().SetNdivisions(n, False)
     g_tot.GetXaxis().SetLabelSize(0.03)
     g_tot.GetXaxis().SetLabelOffset(999)
     g_tot.GetYaxis().SetTitle(f"SF_{{{sf_type}}}")
     g_tot.GetYaxis().SetTitleSize(0.05)
     g_tot.GetYaxis().SetTitleOffset(0.9)
-    y_margin = set_dynamic_y_range(g_tot, r, err_up_tot, err_dn_tot, n_sigma=1.5)  # , fixed_range=(0.8, 1.2))
+    set_dynamic_y_range(g_tot, r, err_up_tot, err_dn_tot, n_sigma=1.5)  # , fixed_range=(0.8, 1.2))
     g_tot.GetYaxis().SetNdivisions(120, 0, 0)
 
-    c.SetGrid()
+    # only horizontal grid; vertical lines are drawn below to separate the category groups
+    c.SetGrid(0, 1)
     # g_tau.Draw("AE2")
     g_tot.Draw("AP")
 
@@ -369,32 +379,54 @@ def plot_r_vs_category_ROOT(year, cats, r, err_fit_up, err_fit_dn, chosen_err, r
     for cat in cats:
         m = re.search(r"Pt-(\d+)to(\d+|Inf)", cat)
         lo, hi = m.group(1), m.group(2)
-        pt_labels.append(f"[{lo}, {hi}]")
+        pt_labels.append(f"#geq{lo}" if hi == "Inf" else f"{lo}-{hi}")
         cat_words.append(cat.split('_')[-1])
 
-    latex = ROOT.TLatex()
-    latex.SetTextAlign(22)
-    latex.SetTextSize(0.03)
+    # labels are placed in NDC so their position doesn't depend on the y range
+    c.Update()
+    def x_to_ndc(xval):
+        return c.GetLeftMargin() + (xval - 0.5) / n * (1 - c.GetLeftMargin() - c.GetRightMargin())
 
-    # vertical placement: first line just below the axis, second line one step lower
-    y_line1 = y_margin - (0.01 if sf_type == "b" else 0.05)
-    hist = g_tot.GetHistogram()
-    yspan = (hist.GetMaximum() - hist.GetMinimum()) if hist else (max(r) - min(r) or 1.0)
-    y_line2 = y_line1 - 0.06 * yspan
+    latex = ROOT.TLatex()
+    latex.SetNDC()
+    latex.SetTextSize(0.028)
+    y_line1 = bottom_margin - 0.015
+    if rotate_labels:
+        latex.SetTextAngle(45)
+        latex.SetTextAlign(32)  # right-aligned so the label ends under its point
+        y_line2 = bottom_margin - 0.125
+    else:
+        latex.SetTextAlign(23)
+        y_line2 = bottom_margin - 0.06
 
     for i, label in enumerate(pt_labels):
-        latex.DrawLatex(i + 1, y_line1, label)
+        latex.DrawLatex(x_to_ndc(i + 1), y_line1, label)
 
+    latex.SetTextAngle(0)
+    latex.SetTextAlign(23)
+    latex.SetTextSize(0.032)
+    separators = []
+    ymin_axis, ymax_axis = g_tot.GetYaxis().GetXmin(), g_tot.GetYaxis().GetXmax()
+    hist = g_tot.GetHistogram()
+    if hist:
+        ymin_axis, ymax_axis = hist.GetMinimum(), hist.GetMaximum()
     i = 0
     while i < len(cat_words):
         j = i
         while j + 1 < len(cat_words) and cat_words[j + 1] == cat_words[i]:
             j += 1
-        latex.DrawLatex(((i + 1) + (j + 1)) / 2.0, y_line2, cat_words[i])
+        latex.DrawLatex(x_to_ndc(((i + 1) + (j + 1)) / 2.0), y_line2, cat_words[i])
+        # vertical line separating neighbouring category groups
+        if j + 1 < len(cat_words):
+            sep = ROOT.TLine(j + 1.5, ymin_axis, j + 1.5, ymax_axis)
+            sep.SetLineStyle(2)
+            sep.SetLineColor(ROOT.kGray+2)
+            sep.Draw("same")
+            separators.append(sep)
         i = j + 1
 
     # CMS Preliminary
-    latex.SetNDC()
+    latex.SetTextAlign(22)
     latex.SetTextFont(42)
     latex.SetTextSize(0.05)
     latex.DrawLatex(0.25, 0.94, "#bf{CMS} #it{Preliminary}")

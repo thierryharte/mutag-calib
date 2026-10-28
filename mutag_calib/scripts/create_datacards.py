@@ -37,6 +37,48 @@ TAU21_NOMINAL = 0.30
 TAU21_VAR_DOWN = 0.15
 TAU21_VAR_UP = 1.0
 
+
+def merge_low_stat_bins(values_list, variances_list, max_relerr):
+    """Group consecutive bins so that, for every (values, variances) pair, each group has a
+    positive yield and a relative stat. uncertainty sqrt(sum var)/sum val <= max_relerr.
+
+    Groups are built left to right; leftover low-stat bins at the end join the last group.
+    Returns the start index of each group (usable with np.add.reduceat).
+    """
+    n = len(values_list[0])
+    starts, start = [], 0
+    val = np.zeros(len(values_list))
+    var = np.zeros(len(values_list))
+    for i in range(n):
+        val += [v[i] for v in values_list]
+        var += [v[i] for v in variances_list]
+        if np.all(val > 0) and np.all(np.sqrt(var) <= max_relerr * val):
+            starts.append(start)
+            start = i + 1
+            val[:] = 0.0
+            var[:] = 0.0
+    return starts if starts else [0]
+
+
+def get_rebin_edges(histo_1d, sample_names, cat, years, max_relerr):
+    """Bin edges merging bins where the total MC of `cat` (summed over `sample_names` and the
+    datasets of `years`) has a relative stat. uncertainty above `max_relerr`."""
+    total_val, total_var = 0.0, 0.0
+    axis = None
+    for s in sample_names:
+        for ds, h in histo_1d.get(s, {}).items():
+            if any(y in ds for y in years):
+                nom = h.view(flow=False)[h.axes["cat"].index(cat), h.axes["variation"].index("nominal")]
+                total_val, total_var = total_val + nom["value"], total_var + nom["variance"]
+                axis = h.axes[-1]
+    if axis is None:
+        return None
+    starts = merge_low_stat_bins([total_val], [total_var], max_relerr)
+    edges = np.append(axis.edges[starts], axis.edges[-1])  # array: rebin_hist does edges + offset
+    print(f"[rebin] {cat}: {axis.size} -> {len(edges) - 1} bins, edges = {np.round(edges, 3).tolist()}")
+    return edges
+
+
 def define_processes(samples, years):
     """Define MC and data processes for the analysis."""
     
@@ -82,6 +124,7 @@ def categorize_samples(cutflow):
     light_samples = set()
     c_samples = set()
     b_samples = set()
+    signal_samples = set()
     data_samples = set()
 
     baseline_category = "inclusive"
@@ -92,6 +135,8 @@ def categorize_samples(cutflow):
                 continue
             elif sample_name.startswith("DATA_"):
                 data_samples.add(sample_name)
+            elif "HH" in sample_name:
+                signal_samples.add(sample_name)
             elif sample_name.endswith("_l"):
                 light_samples.add(sample_name)
             elif sample_name.endswith(("_c", "_cc")):
@@ -103,11 +148,12 @@ def categorize_samples(cutflow):
         "light": sorted(list(light_samples)),
         "c": sorted(list(c_samples)),
         "b": sorted(list(b_samples)),
+        "signal_samples": sorted(list(signal_samples)),
         "data_obs": sorted(list(data_samples)),
     }
 
 
-def define_systematics(years, mc_process_names, tau21_var_region=None):
+def define_systematics(years, mc_process_names, tau21_var_region=None, signal_syst=False):
     """Define systematic uncertainties."""
     year = years[0]
     lumi_value = lumi_sys_values[year]
@@ -157,21 +203,6 @@ def define_systematics(years, mc_process_names, tau21_var_region=None):
             processes={name: 1.0 for name in mc_process_names},
             years=years,
         ),
-        # Add process-specific uncertainties
-        SystematicUncertainty(
-            name="light_norm",
-            typ="lnN",
-            processes=["light"],
-            value=1.20,  # 20% normalization uncertainty for light jets
-            years=years,
-        ),
-        SystematicUncertainty(
-            name="c_norm", 
-            typ="lnN",
-            processes=["c"],
-            value=1.20,  # 20% normalization uncertainty for c jets
-            years=years,
-        ),
     ]
     if tau21_var_region is not None:
         # Separate (uncorrelated) tau21 nuisance per region: tau21_var_pass / tau21_var_fail
@@ -180,6 +211,15 @@ def define_systematics(years, mc_process_names, tau21_var_region=None):
                     name=f"tau21_var_{tau21_var_region}",
                     typ="shape",
                     processes={name: 1.0 for name in mc_process_names},
+                    years=years,
+                    )
+                )
+    if signal_syst and tau21_var_region != "fail":
+        syst_list.append(
+                SystematicUncertainty(
+                    name="signal_syst_pass",
+                    typ="shape",
+                    processes={"b": 1.0},  # only the b process is the signal proxy
                     years=years,
                     )
                 )
@@ -228,8 +268,8 @@ def add_tau21_variation_1d(histo_nom, histo_down, histo_up, cat, mc_processes, y
     """Add a tau21 working-point shape systematic to the 1D histograms.
 
     histo_nom:  1D histos at the nominal cut (tau21 < 0.30)
-    histo_down: 1D histos at tau21 < 0.20 -> used as <syst_name>Down
-    histo_up:   1D histos at tau21 < 0.40 -> used as <syst_name>Up
+    histo_down: 1D histos at tau21 < TAU21_VAR_DOWN -> used as <syst_name>Down
+    histo_up:   1D histos at tau21 < TAU21_VAR_UP -> used as <syst_name>Up
 
     If shape_only is True, the Up/Down templates are rescaled so that, for each
     process (summed over its samples and the datasets of `years`) in category `cat`,
@@ -242,8 +282,10 @@ def add_tau21_variation_1d(histo_nom, histo_down, histo_up, cat, mc_processes, y
         years = [years]
     up_name, down_name = f"{syst_name}Up", f"{syst_name}Down"
 
+    # flow=False: only the in-range bins are written to the datacard, so the normalisation
+    # must not include the flow (the logsumSVmass underflow holds the jets without SV)
     def _nom_view(h):
-        return h.view(flow=True)[:, h.axes["variation"].index("nominal"), :]
+        return h.view(flow=False)[:, h.axes["variation"].index("nominal"), :]
 
     for process_name, process in mc_processes.items():
         sample_names = [s for s in process.samples if s in histo_nom]
@@ -298,14 +340,97 @@ def add_tau21_variation_1d(histo_nom, histo_down, histo_up, cat, mc_processes, y
                 # Fill the real variation only for this category and year
                 if any(y in ds for y in years):
                     ci = h.axes["cat"].index(cat)
+                    new_view_inrange = new_hist.view(flow=False)
                     for idx, src, f in ((up_idx, histo_up, f_up), (down_idx, histo_down, f_down)):
                         if f is None:
                             continue
                         src_nom = _nom_view(src[s][ds])[ci]
-                        new_view[ci, idx, :]["value"] = np.nan_to_num(src_nom["value"] * f)
-                        new_view[ci, idx, :]["variance"] = np.nan_to_num(src_nom["variance"] * f**2)
+                        new_view_inrange[ci, idx, :]["value"] = np.nan_to_num(src_nom["value"] * f)
+                        new_view_inrange[ci, idx, :]["variance"] = np.nan_to_num(src_nom["variance"] * f**2)
 
                 histo_nom[s][ds] = new_hist
+
+
+def get_signal_shape(histo_nom, histo_sig, signal_samples, proxy_samples, cat, years,
+                     max_relerr=0.3, down=False):
+    """Build the Up (and optionally mirrored Down) input for the signal shape systematic,
+    to be passed to add_tau21_variation_1d.
+
+    The b process is the signal proxy, so a bin-by-bin weight w = signal_shape / proxy_shape
+    is computed in category `cat` (only datasets of `years`) and applied to the nominal of every
+    proxy (b) sample. The summed proxy thus takes the signal shape. Normalisation is restored
+    by add_tau21_variation_1d(shape_only=True).
+    To suppress MC fluctuations, w is computed on groups of consecutive bins in which both
+    signal and proxy have a relative stat. uncertainty <= max_relerr (see merge_low_stat_bins).
+
+    If down=True, also return the mirrored variation Down = 2*nominal - Up,
+    i.e. nominal reweighted by (2 - w), clipped at 0 to avoid negative bins.
+    Returns histo_up, or (histo_up, histo_down) if down=True.
+    """
+    if isinstance(years, str):
+        years = [years]
+
+    # flow=False: weights only for the in-range bins written to the datacard
+    def _nom_view(h):
+        return h.view(flow=False)[:, h.axes["variation"].index("nominal"), :]
+
+    mc_sample_names = [s for s in proxy_samples if s in histo_nom]
+
+    def _sum(sample_names, histo_select, field):
+        total = 0.0
+        for s in sample_names:
+            for ds, h in histo_select[s].items():
+                if any(y in ds for y in years):
+                    total = total + _nom_view(h)[h.axes["cat"].index(cat)][field]
+        return np.asarray(total, dtype=float)
+
+    sig_names = [s for s in signal_samples if s in histo_sig]
+    sig_sum, sig_var = _sum(sig_names, histo_sig, "value"), _sum(sig_names, histo_sig, "variance")
+    mc_sum, mc_var = _sum(mc_sample_names, histo_nom, "value"), _sum(mc_sample_names, histo_nom, "variance")
+    if sig_sum.ndim == 0 or mc_sum.ndim == 0 or sig_sum.sum() <= 0 or mc_sum.sum() <= 0:
+        raise RuntimeError(f"[signal_syst] empty signal or b templates in {cat} for {years}")
+
+    # The ratio is computed on merged bins where both signal and proxy have enough stats,
+    # then every fine bin gets the weight of its group: the binning of the templates is kept.
+    starts = merge_low_stat_bins([sig_sum, mc_sum], [sig_var, mc_var], max_relerr)
+    sig_grp = np.add.reduceat(sig_sum, starts)
+    mc_grp = np.add.reduceat(mc_sum, starts)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        w_grp = (sig_grp / sig_sum.sum()) / (mc_grp / mc_sum.sum())
+    # signal empty or negative where the proxy is populated -> weight 0;
+    # proxy empty -> nothing to reweight, keep 1
+    w_grp = np.where(mc_grp > 0, np.clip(np.nan_to_num(w_grp), 0.0, None), 1.0)
+    weights = np.repeat(w_grp, np.diff(starts + [len(sig_sum)]))
+    print(f"[signal_syst] {cat}: {len(starts)} groups starting at bins {starts}, "
+          f"signal/b shape weights = {np.round(w_grp, 3)}")
+
+    def _reweight(w):
+        histo_out = {}
+        for s in mc_sample_names:
+            histo_out[s] = {}
+            for ds, h in histo_nom[s].items():
+                h_new = h.copy()
+                if any(y in ds for y in years):
+                    nom = _nom_view(h_new)[h_new.axes["cat"].index(cat)]
+                    nom["value"] *= w
+                    nom["variance"] *= w**2
+                histo_out[s][ds] = h_new
+        return histo_out
+
+    histo_up = _reweight(weights)
+    if not down:
+        return histo_up
+
+    # Mirror: 2*nom - nom*w = nom*(2 - w). Clip where w > 2 (would give negative yields)
+    w_grp_down = 2.0 - w_grp
+    if np.any(w_grp_down < 0):
+        print(f"[signal_syst] {cat}: WARNING mirrored weights < 0 in groups "
+              f"{np.flatnonzero(w_grp_down < 0).tolist()}, clipped to 0")
+    weights_down = np.repeat(np.clip(w_grp_down, 0.0, None), np.diff(starts + [len(sig_sum)]))
+    print(f"[signal_syst] {cat}: mirrored weights = {np.round(np.clip(w_grp_down, 0, None), 3)}")
+
+    histo_down = _reweight(weights_down)
+    return histo_up, histo_down
 
 
 def add_Madgraph_systematic(histogram_logsumSVmass_tau21):
@@ -641,10 +766,15 @@ def plot_nom_vs_up_vs_down(nom_total, up_total, down_total, flavour, tau21_cut=0
     plt.close()
     print(f"Plot saved in: {outfile}")
 
-def get_1d_histogram(h2d_dict, tau21_cut):
+
+def get_1d_histogram(h2d_dict, tau21_cut, samples=None):
     """Function to get the 1D histogram from the 2D histogram by integrating over the axis corresponding to tau21."""
     h1d_dict = {}
-    for proc, ds_dict in h2d_dict.items():
+    if samples is None:
+        sample_dict = h2d_dict
+    else:
+        sample_dict = {k: h2d_dict[k] for k in samples if k in h2d_dict}
+    for proc, ds_dict in sample_dict.items():
         print(f"\nProcessing {proc}...")
         print(f"{ds_dict.keys()}\n")
         h1d_dict[proc] = {}
@@ -652,7 +782,7 @@ def get_1d_histogram(h2d_dict, tau21_cut):
             # print(f"histo2d.axes = {histo2d.axes}\n")
             ax_tau21 = histo2d.axes["FatJetGood.tau21"]
             if tau21_cut >= ax_tau21.edges[-1]:
-                bin_stop = len(ax_tau21.edges) - 2
+                bin_stop = ax_tau21.size  # exclusive upper index: include the last bin (0.95-1.0)
             else:
                 bin_stop = next(i for i, edge in enumerate(ax_tau21.edges[1:]) if edge > tau21_cut)
             histo_cut = histo2d.integrate(ax_tau21.name, 0, bin_stop)
@@ -903,9 +1033,15 @@ def main():
     parser.add_argument("-f","--filter-category", default="", help="Substring that must be contained in category to produce datacard.")
     parser.add_argument("--no-tau21-var", dest="tau21_var", action="store_false", default=True,
                         help="Disable the tau21_var_pass/tau21_var_fail shape nuisances")
+    parser.add_argument("--no-sigsyst", dest="signal_syst", action="store_false", default=True,
+                        help="Disables additional systematic with signal shape variation to make up for proxy shape.")
+    parser.add_argument("--rebin-max-relerr", type=float, default=None,
+                        help="If set, merge consecutive bins of each channel until the total MC (nominal tau21 cut) "
+                             "has a relative stat. uncertainty <= this value. Applied to all processes, data and tau21 points. "
+                             "Also used for the bin groups of the signal/proxy shape ratio (0.3 if not set).")
     parser.add_argument("--verbose", "-v", action="store_true", default=False, help="Enable verbose output")
     args = parser.parse_args()
-    
+
     # Load the coffea output
     print(f"Loading coffea output from {args.input_file}\n")
     output = load(args.input_file)
@@ -925,6 +1061,8 @@ def main():
     # Categorize samples
     samples = categorize_samples(cutflow)
     print(f"\nFound samples: {samples}")
+    if args.signal_syst:
+        assert samples["signal_samples"], "No signal (HH) samples found, run with --no-sigsyst"
     print(f"Available histograms: {list(histograms.keys())}\n")
 
     successful_categories = []
@@ -957,6 +1095,11 @@ def main():
         mc_names = [p_name for p_name, p in mc_processes.items()]
         systematics = define_systematics(years_group, mc_names)
         systematics_tau21_by_region = {
+            region: define_systematics(years_group, mc_names, tau21_var_region=region, signal_syst=args.signal_syst)
+            for region in ["pass", "fail"]
+        }
+        # The reweighted datacards address the MC/data mismatch, not the signal shape -> no signal_syst
+        systematics_tau21_rew_by_region = {
             region: define_systematics(years_group, mc_names, tau21_var_region=region)
             for region in ["pass", "fail"]
         }
@@ -980,6 +1123,15 @@ def main():
             region = cat.split("-")[-1]
             tau21_syst_name = f"tau21_var_{region}"
             systematics_tau21 = systematics_tau21_by_region[region] if args.tau21_var else systematics
+            systematics_tau21_rew = systematics_tau21_rew_by_region[region] if args.tau21_var else systematics
+
+            # One binning per channel, from the MC at the nominal tau21 cut, shared by all tau21 points
+            bins_edges = None
+            if args.rebin_max_relerr is not None:
+                bins_edges = get_rebin_edges(
+                    get_1d_histogram(histograms[args.variable], TAU21_NOMINAL),
+                    samples["light"] + samples["c"] + samples["b"], cat, years_group, args.rebin_max_relerr,
+                )
 
             for tau21 in TAU21_VALUES:
                 print(f"\n\nCreating datacard: Year: {year}\tCategory: {cat}\ttau21 < {tau21}")
@@ -990,14 +1142,29 @@ def main():
                 histo_1d = get_1d_histogram(histograms[args.variable], tau21)
                 # Add the variation QCD_Madgraph/QCD_MuEnriched to the Hist
                 add_Madgraph_systematic_1d(histo_1d, cat)
-                if is_tau21_nominal and args.tau21_var:
-                    add_tau21_variation_1d(
-                        histo_1d,
-                        histo_down=get_1d_histogram(histograms[args.variable], TAU21_VAR_DOWN),
-                        histo_up=get_1d_histogram(histograms[args.variable], TAU21_VAR_UP),
-                        cat=cat, mc_processes=mc_processes, years=years_group,
-                        syst_name=tau21_syst_name,
-                    )
+                if is_tau21_nominal:
+                    if args.tau21_var:
+                        add_tau21_variation_1d(
+                            histo_1d,
+                            histo_down=get_1d_histogram(histograms[args.variable], TAU21_VAR_DOWN),
+                            histo_up=get_1d_histogram(histograms[args.variable], TAU21_VAR_UP),
+                            cat=cat, mc_processes=mc_processes, years=years_group,
+                            syst_name=tau21_syst_name,
+                        )
+                    if args.signal_syst and region == "pass":
+                        # Up: b (signal proxy) reshaped to the signal shape, Down: mirrored (2*nominal - Up)
+                        histo_signal = get_1d_histogram(histograms[args.variable], 1.00)
+                        histo_sig_shape_up, histo_sig_shape_down = get_signal_shape(
+                            histo_1d, histo_signal, samples["signal_samples"], samples["b"], cat, years_group,
+                            max_relerr=args.rebin_max_relerr or 0.3, down=True,
+                        )
+                        add_tau21_variation_1d(
+                            histo_1d,
+                            histo_down=histo_sig_shape_down,
+                            histo_up=histo_sig_shape_up,
+                            cat=cat, mc_processes={"b": mc_processes["b"]}, years=years_group,
+                            syst_name="signal_syst_pass",
+                        )
                 sanitize_shape_variations(histo_1d, mc_sample_names)
                 print("\n")
                 # Create datacard
@@ -1010,6 +1177,7 @@ def main():
                     data_processes=data_processes,
                     systematics=systematics_tau21 if is_tau21_nominal else systematics,
                     category=cat,  # Category string matching the multicuts structure
+                    bins_edges=bins_edges,
                     bin_suffix=year,
                     verbose=args.verbose
                 )
@@ -1055,8 +1223,9 @@ def main():
                         years=years_group,
                         mc_processes=mc_processes,
                         data_processes=data_processes,
-                        systematics=systematics_tau21,
+                        systematics=systematics_tau21_rew,
                         category=cat,
+                        bins_edges=bins_edges,
                         bin_suffix=year,
                         verbose=args.verbose,
                     )

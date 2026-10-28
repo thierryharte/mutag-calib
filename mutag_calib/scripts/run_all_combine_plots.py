@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import json
 import subprocess
 import argparse
 import re
@@ -13,11 +14,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("base_dir", help="Base directory containing datacards")
     parser.add_argument("-o", "--output-dir", dest="output_dir", help="Output directory for plots", default=None)
+    parser.add_argument("--only-nominal", action="store_true", help="Only fit the central value. Can be relevant if internalised tau21 is used.")
     args = parser.parse_args()
 
     BASE_DIR = args.base_dir
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     MAKE_PLOTS = os.path.join(SCRIPT_DIR, "make_combine_plots.py")
+    TAU21_NOMINAL = "0p30"
 
     for year in sorted(os.listdir(BASE_DIR)):
         year_dir = os.path.join(BASE_DIR, year)
@@ -33,6 +36,8 @@ def main():
                 continue
 
             for tau21 in sorted(os.listdir(cat_dir)):
+                if args.only_nominal and TAU21_NOMINAL not in tau21:
+                    continue
                 tau_dir = os.path.join(cat_dir, tau21)
                 if not os.path.isdir(tau_dir):
                     continue
@@ -50,6 +55,14 @@ def main():
                     continue
 
                 print(f"\n Processing {tau_dir}")
+
+                # skip failed fits: combine does not write shapes_fit_s for them
+                status_file = os.path.join(tau_dir, "fit_status.json")
+                if os.path.exists(status_file):
+                    with open(status_file) as sf:
+                        if not json.load(sf).get("fit_ok", True):
+                            print(f"   WARNING: fit failed (see {status_file}), skipping plots")
+                            continue
 
                 # costruzione pass/fail channel
                 base = tag.replace("-", "_")
